@@ -195,6 +195,44 @@ def test_enumparam():
         inst.ep = 3
 
 
+def test_tupleparam():
+    class Test(object):
+        tp = params.TupleParam('tp', default=(0, 0, 0))
+        tp3 = params.TupleParam('tp3', default=(0, 0, 0), length=3)
+
+    inst = Test()
+    inst.tp = (1, 2, 3)
+    inst.tp = (1, 2, 3, 4)
+    inst.tp3 = (1, 2, 3)
+    inst.tp3 = [1.2, 2.3, 3.4]
+    with pytest.raises(ValidationError):
+        inst.tp = 1
+    with pytest.raises(ValidationError):
+        inst.tp3 = (1, 2)
+    with pytest.raises(ValidationError):
+        inst.tp3 = (1, 2, 3, 4)
+
+
+def test_shapeparam():
+    class Test(object):
+        sp2 = params.ShapeParam('sp2', default=(0, 0), length=2, low=None)
+        sp3 = params.ShapeParam('sp3', default=(0, 0, 0), length=3)
+
+    inst = Test()
+    assert inst.sp2 == (0, 0)
+    assert inst.sp3 == (0, 0, 0)
+    inst.sp2 = (-1, 2)
+    assert inst.sp2 == (-1, 2)
+    inst.sp3 = (0, 2, 3)
+    assert inst.sp3 == (0, 2, 3)
+    with pytest.raises(ValidationError):
+        inst.sp2 = (1, 2, 3)
+    with pytest.raises(ValidationError):
+        inst.sp3 = (-1, 2, 3)
+    with pytest.raises(ValidationError):
+        inst.sp3 = (1, 2.0, 3)
+
+
 def test_dictparam():
     """DictParams must be dictionaries."""
     class Test(object):
@@ -275,3 +313,12 @@ def test_functionparam():
     # Not OK: not a function
     with pytest.raises(ValidationError):
         inst.fp = 0
+
+
+def test_iter_params_does_not_list_obsolete_params():
+    class Test(object):
+        p1 = params.IntParam('p1')
+        p2 = params.IntParam('p2')
+        obsolete = params.ObsoleteParam('obsolete', 'not included in params')
+
+    assert set(params.iter_params(Test())) == {'p1', 'p2'}

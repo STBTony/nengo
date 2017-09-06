@@ -29,6 +29,21 @@ class Factory(object):
                   for k, v in iteritems(self.kwargs)}
         return self.klass(*args, **kwargs)
 
+    def __str__(self):
+        try:
+            inst = self()
+        except Exception:
+            inst = "%s(args=%s, kwargs=%s)" % (
+                self.klass, self.args, self.kwargs)
+        return str(inst)
+
+    def __repr__(self):
+        try:
+            inst = self()
+        except Exception:
+            inst = "<%r instance>" % (self.klass.__name__)
+        return repr(inst)
+
 
 def get_encoders(n_neurons, dims, rng=None):
     return UniformHypersphere(surface=True).sample(n_neurons, dims, rng=rng).T
@@ -271,7 +286,7 @@ def test_compare_solvers(Simulator, plt, seed):
             nengo.Connection(a, b, solver=solver)
             probes.append(nengo.Probe(b))
             names.append("%s(%s)" % (
-                solver.__class__.__name__, 'w' if solver.weights else 'd'))
+                type(solver).__name__, 'w' if solver.weights else 'd'))
 
     with Simulator(model) as sim:
         sim.run(tfinal)

@@ -6,8 +6,9 @@ import numpy as np
 import nengo.utils.numpy as npext
 from nengo.builder import Builder, Signal
 from nengo.builder.operator import Copy, DotInc, Reset
-from nengo.dists import Distribution
+from nengo.dists import Distribution, get_samples
 from nengo.ensemble import Ensemble
+from nengo.exceptions import BuildError
 from nengo.neurons import Direct
 from nengo.utils.builder import default_n_eval_points
 
@@ -57,12 +58,6 @@ class BuiltEnsemble(collections.namedtuple('BuiltEnsemble', built_attrs)):
                                    max_rates, scaled_encoders, gain, bias))
 
 
-def sample(dist, n, d=None, rng=None):
-    if isinstance(dist, Distribution):
-        return dist.sample(n, d=d, rng=rng).astype(np.float64)
-    return np.array(dist, dtype=np.float64)
-
-
 def gen_eval_points(ens, eval_points, rng, scale_eval_points=True):
     if isinstance(eval_points, Distribution):
         n_points = ens.n_eval_points
@@ -82,26 +77,34 @@ def gen_eval_points(ens, eval_points, rng, scale_eval_points=True):
     return eval_points
 
 
-def get_activities(model, ens, eval_points):
-    x = np.dot(eval_points, model.params[ens].encoders.T / ens.radius)
-    return ens.neuron_type.rates(
-        x, model.params[ens].gain, model.params[ens].bias)
+def get_activities(built_ens, ens, eval_points):
+    x = np.dot(eval_points, built_ens.encoders.T / ens.radius)
+    return ens.neuron_type.rates(x, built_ens.gain, built_ens.bias)
 
 
 def get_gain_bias(ens, rng=np.random):
     if ens.gain is not None and ens.bias is not None:
-        gain = sample(ens.gain, ens.n_neurons, rng=rng)
-        bias = sample(ens.bias, ens.n_neurons, rng=rng)
-        max_rates, intercepts = None, None  # TODO: determine from gain & bias
+        gain = get_samples(ens.gain, ens.n_neurons, rng=rng)
+        bias = get_samples(ens.bias, ens.n_neurons, rng=rng)
+        max_rates, intercepts = ens.neuron_type.max_rates_intercepts(
+            gain, bias)
     elif ens.gain is not None or ens.bias is not None:
         # TODO: handle this instead of error
         raise NotImplementedError("gain or bias set for %s, but not both. "
                                   "Solving for one given the other is not "
                                   "implemented yet." % ens)
     else:
-        max_rates = sample(ens.max_rates, ens.n_neurons, rng=rng)
-        intercepts = sample(ens.intercepts, ens.n_neurons, rng=rng)
+        max_rates = get_samples(ens.max_rates, ens.n_neurons, rng=rng)
+        intercepts = get_samples(ens.intercepts, ens.n_neurons, rng=rng)
         gain, bias = ens.neuron_type.gain_bias(max_rates, intercepts)
+        if gain is not None and (
+                not np.all(np.isfinite(gain)) or np.any(gain <= 0.)):
+            raise BuildError(
+                "The specified intercepts for %s lead to neurons with "
+                "negative or non-finite gain. Please adjust the intercepts so "
+                "that all gains are positive. For most neuron types (e.g., "
+                "LIF neurons) this is achieved by reducing the maximum "
+                "intercept value to below 1." % ens)
 
     return gain, bias, max_rates, intercepts
 
@@ -153,10 +156,12 @@ def build_ensemble(model, ens):
     if isinstance(ens.neuron_type, Direct):
         encoders = np.identity(ens.dimensions)
     elif isinstance(ens.encoders, Distribution):
-        encoders = sample(ens.encoders, ens.n_neurons, ens.dimensions, rng=rng)
+        encoders = get_samples(
+            ens.encoders, ens.n_neurons, ens.dimensions, rng=rng)
     else:
         encoders = npext.array(ens.encoders, min_dims=2, dtype=np.float64)
-    encoders /= npext.norm(encoders, axis=1, keepdims=True)
+    if ens.normalize_encoders:
+        encoders /= npext.norm(encoders, axis=1, keepdims=True)
 
     # Build the neurons
     gain, bias, max_rates, intercepts = get_gain_bias(ens, rng)
@@ -171,8 +176,10 @@ def build_ensemble(model, ens):
             np.zeros(ens.n_neurons), name="%s.neuron_in" % ens)
         model.sig[ens.neurons]['out'] = Signal(
             np.zeros(ens.n_neurons), name="%s.neuron_out" % ens)
-        bias_sig = Signal(bias, name="%s.bias" % ens, readonly=True)
-        model.add_op(Copy(src=bias_sig, dst=model.sig[ens.neurons]['in']))
+        model.sig[ens.neurons]['bias'] = Signal(
+            bias, name="%s.bias" % ens, readonly=True)
+        model.add_op(Copy(model.sig[ens.neurons]['bias'],
+                          model.sig[ens.neurons]['in']))
         # This adds the neuron's operator and sets other signals
         model.build(ens.neuron_type, ens.neurons)
 

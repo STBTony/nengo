@@ -1,3 +1,11 @@
+"""These solvers are to be passed as arguments to `~.Solver` objects.
+
+For example::
+
+    nengo.Connection(ens_a, ens_b, solver=LstsqL2(solver=RandomizedSVD()))
+
+"""
+
 from __future__ import absolute_import
 
 import numpy as np
@@ -25,7 +33,7 @@ def rmses(A, X, Y):
 class LeastSquaresSolver(FrozenObject):
     """Linear least squares system solver."""
 
-    def __call__(self, A, y, sigma, rng=None):
+    def __call__(self, A, Y, sigma, rng=None):
         raise NotImplementedError("LeastSquaresSolver must implement call")
 
 
@@ -38,7 +46,7 @@ class Cholesky(LeastSquaresSolver):
         super(Cholesky, self).__init__()
         self.transpose = transpose
 
-    def __call__(self, A, y, sigma, rng=None):
+    def __call__(self, A, Y, sigma, rng=None):
         m, n = A.shape
         transpose = self.transpose
         if transpose is None:
@@ -48,11 +56,11 @@ class Cholesky(LeastSquaresSolver):
         if transpose:
             # substitution: x = A'*xbar, G*xbar = b where G = A*A' + lambda*I
             G = np.dot(A, A.T)
-            b = y
+            b = Y
         else:
             # multiplication by A': G*x = A'*b where G = A'*A + lambda*I
             G = np.dot(A.T, A)
-            b = np.dot(A.T, y)
+            b = np.dot(A.T, Y)
 
         # add L2 regularization term 'lambda' = m * sigma**2
         np.fill_diagonal(G, G.diagonal() + m * sigma**2)
@@ -60,15 +68,15 @@ class Cholesky(LeastSquaresSolver):
         try:
             import scipy.linalg
             factor = scipy.linalg.cho_factor(G, overwrite_a=True)
-            x = scipy.linalg.cho_solve(factor, b)
+            X = scipy.linalg.cho_solve(factor, b)
         except ImportError:
             L = np.linalg.cholesky(G)
             L = np.linalg.inv(L.T)
-            x = np.dot(L, np.dot(L.T, b))
+            X = np.dot(L, np.dot(L.T, b))
 
-        x = np.dot(A.T, x) if transpose else x
-        info = {'rmses': rmses(A, x, y)}
-        return x, info
+        X = np.dot(A.T, X) if transpose else X
+        info = {'rmses': rmses(A, X, Y)}
+        return X, info
 
 
 class ConjgradScipy(LeastSquaresSolver):
@@ -262,6 +270,8 @@ class SVD(LeastSquaresSolver):
 class RandomizedSVD(LeastSquaresSolver):
     """Solve a least-squares system using a randomized (partial) SVD.
 
+    Useful for solving large matrices quickly, but non-optimally.
+
     Parameters
     ----------
     n_components : int (default is 60)
@@ -308,10 +318,6 @@ class RandomizedSVD(LeastSquaresSolver):
 
 
 class LeastSquaresSolverParam(Parameter):
-    def validate(self, instance, solver):
-        if solver is not None and not isinstance(solver, LeastSquaresSolver):
-            raise ValidationError(
-                "'%s' is not a least-squares subsolver "
-                "(see ``nengo.solvers.lstsq`` for options)" % solver,
-                attr=self.name, obj=instance)
-        super(LeastSquaresSolverParam, self).validate(instance, solver)
+    def coerce(self, instance, solver):
+        self.check_type(instance, solver, LeastSquaresSolver)
+        return super(LeastSquaresSolverParam, self).coerce(instance, solver)

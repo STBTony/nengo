@@ -139,11 +139,23 @@ def test_circular(Simulator, seed):
     assert np.allclose(sim.data[a_p], sim.data[b_p])
 
 
-def test_function_args_error(Simulator):
+def test_outputparam_errors(Simulator):
     with nengo.Network() as model:
+        # valid values
+        nengo.Node(output=lambda t: t+1)
+        nengo.Node(output=0)
+        nengo.Node(output=[0, 1])
+        nengo.Node(output=nengo.processes.WhiteNoise())
+        nengo.Node(size_in=1)
+
+        # type errors
+        with pytest.raises(ValidationError):
+            nengo.Node(output=object())
+
+        # function errors
+        nengo.Node(output=lambda t, x=[0]: t+1, size_in=1)
         with pytest.raises(ValidationError):
             nengo.Node(output=lambda t, x: x+1)
-        nengo.Node(output=lambda t, x=[0]: t+1, size_in=1)
         with pytest.raises(ValidationError):
             nengo.Node(output=lambda t: t+1, size_in=1)
         with pytest.raises(ValidationError):
@@ -152,12 +164,8 @@ def test_function_args_error(Simulator):
             nengo.Node(output=[0], size_in=1)
         with pytest.raises(ValidationError):
             nengo.Node(output=0, size_in=1)
-    with Simulator(model):
-        pass
 
-
-def test_output_shape_error():
-    with nengo.Network():
+        # shape errors
         with pytest.raises(ValidationError):
             nengo.Node(output=[[1, 2], [3, 4]])
         with pytest.raises(ValidationError):
@@ -166,6 +174,9 @@ def test_output_shape_error():
             nengo.Node(output=[[3, 1], [2, 9]], size_out=4)
         with pytest.raises(ValidationError):
             nengo.Node(output=[1, 2, 3, 4, 5], size_out=4)
+
+    with Simulator(model):
+        pass
 
 
 def test_none(Simulator, seed):
@@ -346,3 +357,53 @@ def test_seed_error():
     with nengo.Network():
         with pytest.raises(NotImplementedError):
             nengo.Node(seed=1)
+
+
+def test_node_with_offset_array_view(Simulator):
+    v = np.array([[1., 2.], [3., 4.]])
+    with nengo.Network() as model:
+        node = nengo.Node(v[1])
+        probe = nengo.Probe(node)
+        assert probe
+
+    with Simulator(model):
+        pass
+
+
+def test_node_with_unusual_strided_view(Simulator, seed):
+    v = np.array([1., 2.], dtype=complex)  # 16 byte itemsize
+    with nengo.Network(seed=seed) as model:
+        node = nengo.Node(v.real)  # 8 byte itemsize, but 16 byte strides
+        probe = nengo.Probe(node)
+        assert probe
+
+    with Simulator(model):
+        pass
+
+
+def test_non_finite_values(Simulator):
+    with nengo.Network() as model:
+        with pytest.raises(ValidationError):
+            node = nengo.Node(np.inf)
+
+    with nengo.Network() as model:
+        with pytest.raises(ValidationError):
+            node = nengo.Node(np.nan)
+
+    with nengo.Network() as model:
+        node = nengo.Node(lambda t: np.inf)
+        ens = nengo.Ensemble(10, 1)
+        nengo.Connection(node, ens)
+
+    with Simulator(model) as sim:
+        with pytest.raises(SimulationError):
+            sim.run(0.01)
+
+    with nengo.Network() as model:
+        node = nengo.Node(lambda t: np.nan)
+        ens = nengo.Ensemble(10, 1)
+        nengo.Connection(node, ens)
+
+    with Simulator(model) as sim:
+        with pytest.raises(SimulationError):
+            sim.run(0.01)

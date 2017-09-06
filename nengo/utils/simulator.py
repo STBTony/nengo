@@ -6,7 +6,7 @@ from .graphs import add_edges
 from .stdlib import groupby
 
 
-def operator_depencency_graph(operators):  # noqa: C901
+def operator_dependency_graph(operators):  # noqa: C901
     # -- all views of a base object in a particular dictionary
     by_base_sets = defaultdict(set)
     by_base_writes = defaultdict(set)
@@ -85,13 +85,6 @@ def validate_ops(sets, ups, incs):
     for sig in ups:
         sig_ups = ups[sig] + (ups.get(sig.base, []) if sig.is_view else [])
         assert len(sig_ups) == 1, (sig, sig_ups)
-
-    # --- assert that any sig that is incremented is also set/updated
-    for sig in incs:
-        sig_sets_ups = sets.get(sig, []) + ups.get(sig, []) + (
-            sets.get(sig.base, []) + ups.get(sig.base, [])
-            if sig.is_view else [])
-        assert len(sig_sets_ups) > 0, (sig)
 
     # -- assert that no two views are both set and aliased
     for _, base_group in groupby(sets, lambda x: x.base, hashable=True):

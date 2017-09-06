@@ -26,8 +26,7 @@ Ensure that you fill out all sections of the pull request template,
 deleting the comments as you go.
 We check most aspects of code style automatically.
 Please refer to our
-`code style guide
-<http://pythonhosted.org/nengo/dev_introduction.html#code-style>`_
+`code style guide <https://www.nengo.ai/style.html>`_
 for things that we check manually.
 
 Contributor agreement
@@ -35,12 +34,11 @@ Contributor agreement
 
 We require that all contributions be covered under
 our contributor assignment agreement. Please see
-`the agreement
-<http://pythonhosted.org/nengo/license.html#contributor-assignment-agreement>`_
+`the agreement <https://www.nengo.ai/caa.html>`_
 for instructions on how to sign.
 
 More details
 ============
 
 For more details on how to contribute to Nengo, please see our
-`developer documentation <http://pythonhosted.org/nengo/dev_guide.html>`_.
+`developer guide <https://www.nengo.ai/developers.html>`_.

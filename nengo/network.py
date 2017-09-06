@@ -1,9 +1,15 @@
+from copy import deepcopy
+import warnings
+
 from nengo.config import Config
 from nengo.connection import Connection
 from nengo.ensemble import Ensemble
-from nengo.exceptions import ConfigError, NetworkContextError, ReadonlyError
+from nengo.exceptions import (
+    ConfigError, NetworkContextError, NotAddedToNetworkWarning, ReadonlyError)
 from nengo.node import Node
+from nengo.params import IntParam, StringParam
 from nengo.probe import Probe
+from nengo.utils.compat import iteritems
 from nengo.utils.threading import ThreadLocalStack
 
 
@@ -73,6 +79,9 @@ class Network(object):
 
     context = ThreadLocalStack(maxsize=100)  # static stack of Network objects
 
+    label = StringParam('label', optional=True, readonly=False)
+    seed = IntParam('seed', optional=True, readonly=False)
+
     def __init__(self, label=None, seed=None, add_to_container=None):
         self.label = label
         self.seed = seed
@@ -95,12 +104,6 @@ class Network(object):
         if add_to_container:
             Network.add(self)
 
-    def __getstate__(self):
-        raise NotImplementedError("Nengo Networks do not support pickling")
-
-    def __setstate__(self, state):
-        raise NotImplementedError("Nengo Networks do not support pickling")
-
     @staticmethod
     def add(obj):
         """Add the passed object to ``Network.context``."""
@@ -113,13 +116,13 @@ class Network(object):
         if not isinstance(network, Network):
             raise NetworkContextError(
                 "Current context (%s) is not a network" % network)
-        for cls in obj.__class__.__mro__:
+        for cls in type(obj).__mro__:
             if cls in network.objects:
                 network.objects[cls].append(obj)
                 break
         else:
             raise NetworkContextError("Objects of type %r cannot be added to "
-                                      "networks." % obj.__class__.__name__)
+                                      "networks." % type(obj).__name__)
 
     @staticmethod
     def default_config():
@@ -176,6 +179,11 @@ class Network(object):
     def config(self, dummy):
         raise ReadonlyError(attr='config', obj=self)
 
+    @property
+    def n_neurons(self):
+        """(int) Number of neurons in this network, including subnetworks."""
+        return sum(ens.n_neurons for ens in self.all_ensembles)
+
     def __contains__(self, obj):
         return type(obj) in self.objects and obj in self.objects[type(obj)]
 
@@ -204,14 +212,38 @@ class Network(object):
 
         self._config.__exit__(dummy_exc_type, dummy_exc_value, dummy_tb)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['label'] = self.label
+        state['seed'] = self.seed
+        return state
+
+    def __setstate__(self, state):
+        for k, v in iteritems(state):
+            setattr(self, k, v)
+        if len(Network.context) > 0:
+            warnings.warn(NotAddedToNetworkWarning(self))
+
     def __str__(self):
         return "<%s %s>" % (
-            self.__class__.__name__,
+            type(self).__name__,
             '"%s"' % self.label if self.label is not None else
             "(unlabeled) at 0x%x" % id(self))
 
     def __repr__(self):
         return "<%s %s %s>" % (
-            self.__class__.__name__,
+            type(self).__name__,
             '"%s"' % self.label if self.label is not None else "(unlabeled)",
             "at 0x%x" % id(self))
+
+    def copy(self, add_to_container=None):
+        with warnings.catch_warnings():
+            # We warn when copying since we can't change add_to_container.
+            # However, we deal with it here, so we ignore the warning.
+            warnings.simplefilter('ignore', category=NotAddedToNetworkWarning)
+            c = deepcopy(self)
+        if add_to_container is None:
+            add_to_container = len(Network.context) > 0
+        if add_to_container:
+            Network.add(c)
+        return c

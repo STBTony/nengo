@@ -8,13 +8,14 @@ import numpy as np
 
 import nengo.utils.numpy as npext
 from nengo.builder import Model
+from nengo.builder.optimizer import optimize as opmerge_optimize
 from nengo.builder.signal import SignalDict
 from nengo.cache import get_default_decoder_cache
 from nengo.exceptions import ReadonlyError, SimulatorClosed
 from nengo.utils.compat import range, ResourceWarning
 from nengo.utils.graphs import toposort
 from nengo.utils.progress import ProgressTracker
-from nengo.utils.simulator import operator_depencency_graph
+from nengo.utils.simulator import operator_dependency_graph
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +30,19 @@ class ProbeDict(Mapping):
     """
 
     def __init__(self, raw):
+        super(ProbeDict, self).__init__()
         self.raw = raw
+        self._cache = {}
 
     def __getitem__(self, key):
-        rval = self.raw[key]
-        if isinstance(rval, list):
-            rval = np.asarray(rval)
-            rval.setflags(write=False)
-        return rval
+        if (key not in self._cache or
+                len(self._cache[key]) != len(self.raw[key])):
+            rval = self.raw[key]
+            if isinstance(rval, list):
+                rval = np.asarray(rval)
+                rval.setflags(write=False)
+            self._cache[key] = rval
+        return self._cache[key]
 
     def __iter__(self):
         return iter(self.raw)
@@ -49,6 +55,9 @@ class ProbeDict(Mapping):
 
     def __str__(self):
         return str(self.raw)
+
+    def reset(self):
+        self._cache.clear()
 
 
 class Simulator(object):
@@ -86,6 +95,19 @@ class Simulator(object):
         want to build the network manually, or you want to inject build
         artifacts in the model before building the network, then you can
         pass in a `.Model` instance.
+    progress_bar : bool or `.ProgressBar` or `.ProgressUpdater`, optional \
+                   (Default: True)
+        Progress bar for displaying build and simulation progress.
+
+        If ``True``, the default progress bar will be used.
+        If ``False``, the progress bar will be disabled.
+        For more control over the progress bar, pass in a `.ProgressBar`
+        or `.ProgressUpdater` instance.
+    optimize : bool, optional (Default: True)
+        If ``True``, the builder will run an additional optimization step
+        that can speed up simulations signficantly at the cost of slower
+        builds. If running models for very small amounts of time,
+        pass ``False`` to disable the optimizer.
 
     Attributes
     ----------
@@ -116,37 +138,36 @@ class Simulator(object):
     # would skip all test whose names start with 'test_pes'.
     unsupported = []
 
-    def __init__(self, network, dt=0.001, seed=None, model=None):
+    def __init__(
+            self, network,
+            dt=0.001, seed=None, model=None, progress_bar=True, optimize=True):
         self.closed = False
+        self.progress_bar = progress_bar
 
-        if model is None or model.decoder_cache is None:
-            cache = get_default_decoder_cache()
+        if model is None:
+            self.model = Model(dt=float(dt),
+                               label="%s, dt=%f" % (network, dt),
+                               decoder_cache=get_default_decoder_cache())
         else:
-            cache = model.decoder_cache
+            self.model = model
 
-        with cache:
-            if model is None:
-                self.model = Model(dt=float(dt),
-                                   label="%s, dt=%f" % (network, dt),
-                                   decoder_cache=cache)
-            else:
-                self.model = model
+        if network is not None:
+            # Build the network into the model
+            self.model.build(network, progress_bar=self.progress_bar)
 
-            if network is not None:
-                # Build the network into the model
-                self.model.build(network)
+        # Order the steps (they are made in `Simulator.reset`)
+        self.dg = operator_dependency_graph(self.model.operators)
 
-            cache.shrink()
+        if optimize:
+            opmerge_optimize(self.model, self.dg)
+
+        self._step_order = [op for op in toposort(self.dg)
+                            if hasattr(op, 'make_step')]
 
         # -- map from Signal.base -> ndarray
         self.signals = SignalDict()
         for op in self.model.operators:
             op.init_signals(self.signals)
-
-        # Order the steps (they are made in `Simulator.reset`)
-        self.dg = operator_depencency_graph(self.model.operators)
-        self._step_order = [op for op in toposort(self.dg)
-                            if hasattr(op, 'make_step')]
 
         # Add built states to the probe dictionary
         self._probe_outputs = self.model.params
@@ -244,10 +265,11 @@ class Simulator(object):
         # clear probe data
         for probe in self.model.probes:
             self._probe_outputs[probe] = []
+        self.data.reset()
 
         self._probe_step_time()
 
-    def run(self, time_in_seconds, progress_bar=True):
+    def run(self, time_in_seconds, progress_bar=None):
         """Simulate for the given length of time.
 
         Parameters
@@ -268,7 +290,7 @@ class Simulator(object):
                     self.model.label, time_in_seconds, steps)
         self.run_steps(steps, progress_bar=progress_bar)
 
-    def run_steps(self, steps, progress_bar=True):
+    def run_steps(self, steps, progress_bar=None):
         """Simulate for the given number of ``dt`` steps.
 
         Parameters
@@ -284,7 +306,9 @@ class Simulator(object):
             For more control over the progress bar, pass in a `.ProgressBar`
             or `.ProgressUpdater` instance.
         """
-        with ProgressTracker(steps, progress_bar) as progress:
+        if progress_bar is None:
+            progress_bar = self.progress_bar
+        with ProgressTracker(steps, progress_bar, "Simulating") as progress:
             for i in range(steps):
                 self.step()
                 progress.step()

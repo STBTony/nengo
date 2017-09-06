@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 
 import nengo
-from nengo.neurons import NeuronTypeParam
+
+from nengo.exceptions import BuildError, SimulationError
+from nengo.neurons import Direct, NeuronTypeParam
 from nengo.processes import WhiteSignal
 from nengo.solvers import LstsqL2nz
 from nengo.utils.ensemble import tuning_curves
@@ -283,6 +285,39 @@ def test_izhikevich(Simulator, plt, seed, rng):
     plot(rz, "Resonator", 6)
 
 
+@pytest.mark.parametrize("max_rate,intercept", [(300., 0.0), (100., 1.1)])
+def test_sigmoid_response_curves(Simulator, max_rate, intercept):
+    """Check the sigmoid response curve monotonically increases.
+
+    The sigmoid response curve should work fine:
+
+    - if max rate > rate at inflection point and intercept < 1
+    - if max rate < rate at inflection point and intercept > 1
+    """
+    with nengo.Network() as m:
+        e = nengo.Ensemble(1, 1, neuron_type=nengo.Sigmoid(),
+                           max_rates=[max_rate], intercepts=[intercept])
+
+    with Simulator(m) as sim:
+        pass
+    x, y = nengo.utils.ensemble.response_curves(e, sim)
+    assert np.allclose(np.max(y), max_rate)
+    assert np.all(y > 0.)
+    assert np.all(np.diff(y) > 0.)  # monotonically increasing
+
+
+@pytest.mark.parametrize("max_rate,intercept", [
+    (300., 1.1), (300., 1.0), (100., 0.9), (100, 1.0)])
+def test_sigmoid_invalid(Simulator, max_rate, intercept):
+    """Check that invalid sigmoid ensembles raise an error."""
+    with nengo.Network() as m:
+        nengo.Ensemble(1, 1, neuron_type=nengo.Sigmoid(),
+                       max_rates=[max_rate], intercepts=[intercept])
+    with pytest.raises(BuildError):
+        with Simulator(m):
+            pass
+
+
 def test_dt_dependence(Simulator, nl_nodirect, plt, seed, rng):
     """Neurons should not wildly change with different dt."""
     freq = 10 * (2 * np.pi)
@@ -390,3 +425,56 @@ def test_frozen():
         a.tau_rc = 0.3
     with pytest.raises(ValueError):
         d.coupling = 8
+
+
+def test_direct_mode_nonfinite_value(Simulator):
+    with nengo.Network() as model:
+        e1 = nengo.Ensemble(10, 1, neuron_type=Direct())
+        e2 = nengo.Ensemble(10, 1)
+        nengo.Connection(e1, e2, function=lambda x: 1. / x)
+
+    with Simulator(model) as sim:
+        with pytest.raises(SimulationError):
+            sim.run(0.01)
+
+
+@pytest.mark.parametrize("generic", (True, False))
+def test_gain_bias(rng, nl_nodirect, generic):
+    if nl_nodirect == nengo.Sigmoid and generic:
+        # the generic method doesn't work with sigmoid neurons (because they're
+        # always positive). that's not a failure, because the sigmoid neurons
+        # never need to use the generic method normally, so we'll just skip
+        # it for this test.
+        return
+
+    n = 100
+    max_rates = rng.uniform(300, 400, size=n)
+    intercepts = rng.uniform(-0.5, 0.5, size=n)
+    nl = nl_nodirect()
+    tolerance = 0.1 if generic else 1e-8
+
+    if generic:
+        gain, bias = nengo.neurons.NeuronType.gain_bias(nl, max_rates,
+                                                        intercepts)
+    else:
+        gain, bias = nl.gain_bias(max_rates, intercepts)
+
+    assert np.allclose(nl.rates(np.ones(n), gain, bias), max_rates,
+                       atol=tolerance)
+
+    if nl_nodirect == nengo.Sigmoid:
+        threshold = 0.5 / nl.tau_ref
+    else:
+        threshold = 0
+
+    assert np.all(nl.rates(intercepts - tolerance, gain, bias) <= threshold)
+    assert np.all(nl.rates(intercepts + tolerance, gain, bias) > threshold)
+
+    if generic:
+        max_rates0, intercepts0 = (
+            nengo.neurons.NeuronType.max_rates_intercepts(nl, gain, bias))
+    else:
+        max_rates0, intercepts0 = nl.max_rates_intercepts(gain, bias)
+
+    assert np.allclose(max_rates, max_rates0, atol=tolerance)
+    assert np.allclose(intercepts, intercepts0, atol=tolerance)

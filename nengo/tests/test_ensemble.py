@@ -4,6 +4,7 @@ import pytest
 import nengo
 import nengo.utils.numpy as npext
 from nengo.dists import Choice, Gaussian, UniformHypersphere
+from nengo.exceptions import BuildError
 from nengo.processes import WhiteNoise, FilteredNoise
 from nengo.utils.testing import warns, allclose
 
@@ -256,13 +257,28 @@ def test_len():
     assert len(ens1) == 1
     assert len(ens5) == 5
     assert len(ens1[0]) == 1
+    assert len(ens1[-1]) == 1
     assert len(ens5[:3]) == 3
+    assert len(ens5[:100]) == 5
 
     # Neurons.__len__
     assert len(ens1.neurons) == 10
     assert len(ens5.neurons) == 100
     assert len(ens1.neurons[0]) == 1
     assert len(ens5.neurons[90:]) == 10
+    assert len(ens5.neurons[90:150]) == 10
+
+
+def test_invalid_indices():
+    with nengo.Network():
+        ens = nengo.Ensemble(10, dimensions=2)
+
+    with pytest.raises(IndexError):
+        assert ens[5]
+    with pytest.raises(IndexError):
+        assert ens[-5]
+    with pytest.raises(IndexError):
+        assert ens.neurons[20]
 
 
 def test_invalid_rates(Simulator):
@@ -365,3 +381,30 @@ def test_noise_copies_ok(Simulator, nl_nodirect, seed, plt):
 
     assert np.allclose(sim.data[ap], sim.data[bp])
     assert np.allclose(sim.data[bp], sim.data[cp])
+
+
+def test_no_norm_encoders(Simulator):
+    """Confirm encoders are not normalized"""
+
+    enc_weight = 5
+    with nengo.Network() as model:
+        norm = nengo.Ensemble(1, 1, encoders=[[enc_weight]])
+        no_norm = nengo.Ensemble(1, 1,
+                                 encoders=[[enc_weight]],
+                                 normalize_encoders=False)
+
+    with Simulator(model) as sim:
+        pass
+
+    assert np.allclose(sim.data[norm].encoders, 1)
+    assert np.allclose(sim.data[no_norm].encoders, enc_weight)
+
+
+@pytest.mark.parametrize('intercept', [1.0, 1.1])
+def test_raises_exception_for_invalid_intercepts(Simulator, intercept):
+    with nengo.Network() as model:
+        nengo.Ensemble(1, 1, intercepts=[intercept])
+
+    with pytest.raises(BuildError):
+        with nengo.Simulator(model):
+            pass

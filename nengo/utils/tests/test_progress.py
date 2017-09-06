@@ -6,9 +6,9 @@ from nengo.utils.progress import (
 
 
 class ProgressBarMock(ProgressBar):
-    def __init__(self):
+    def __init__(self, task="Testing"):
         self.n_update_calls = 0
-        super(ProgressBarMock, self).__init__()
+        super(ProgressBarMock, self).__init__(task)
 
     def update(self, progress):
         self.n_update_calls += 1
@@ -39,7 +39,7 @@ class TestProgress(object):
         try:
             with Progress(10) as p2:
                 raise Exception()
-        except:
+        except Exception:
             pass
         assert not p2.success
 
@@ -63,6 +63,7 @@ class TestAutoProgressBar(object):
     class ProgressMock(object):
         def __init__(self, eta, start_time=1234.5):
             self.eta = lambda: eta
+            self.elapsed_seconds = lambda: 0
             self.start_time = start_time
             self.finished = False
 
@@ -103,7 +104,7 @@ class TestUpdateN(object):
         progress_bar = ProgressBarMock()
         updater = UpdateN(progress_bar, max_updates=3)
 
-        with ProgressTracker(100, updater) as p:
+        with ProgressTracker(100, updater, "Testing") as p:
             for _ in range(100):
                 p.step()
 
@@ -116,7 +117,7 @@ class TestUpdateEveryN(object):
         progress_bar = ProgressBarMock()
         updater = UpdateEveryN(progress_bar, every_n=5)
 
-        with ProgressTracker(100, updater) as p:
+        with ProgressTracker(100, updater, "Testing") as p:
             progress_bar.n_update_calls = 0
             for _ in range(5):
                 p.step()
@@ -135,7 +136,7 @@ class TestUpdateEveryT(object):
         t = 1.
         monkeypatch.setattr(time, 'time', lambda: t)
 
-        with ProgressTracker(100, updater) as p:
+        with ProgressTracker(100, updater, "Testing") as p:
             p.step()  # Update is allowed to happen on first step.
 
             progress_bar.n_update_calls = 0

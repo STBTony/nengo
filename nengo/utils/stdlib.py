@@ -16,6 +16,35 @@ import weakref
 from .compat import iteritems, itervalues
 
 
+class WeakKeyDefaultDict(collections.MutableMapping):
+    """WeakKeyDictionary that allows to define a default."""
+
+    def __init__(self, default_factory, items=None, **kwargs):
+        super(WeakKeyDefaultDict, self).__init__()
+        self.default_factory = default_factory
+        self._data = weakref.WeakKeyDictionary(items, **kwargs)
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __getitem__(self, key):
+        if key not in self._data:
+            self._data[key] = self.default_factory()
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __delitem__(self, key):
+        del self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+
 class WeakKeyIDDictionary(collections.MutableMapping):
     """WeakKeyDictionary that uses object ID to hash.
 
@@ -24,10 +53,34 @@ class WeakKeyIDDictionary(collections.MutableMapping):
     """
 
     def __init__(self, *args, **kwargs):
+        super(WeakKeyIDDictionary, self).__init__()
         self._keyrefs = weakref.WeakValueDictionary()
         self._keyvalues = {}
+        self._ref2id = {}
+        self._id2ref = {}
         if len(args) > 0 or len(kwargs) > 0:
             self.update(*args, **kwargs)
+
+    def __contains__(self, k):
+        if k is None:
+            return False
+        return k is self._keyrefs.get(id(k))
+
+    def __iter__(self):
+        return itervalues(self._keyrefs)
+
+    def __len__(self):
+        return len(self._keyrefs)
+
+    def __delitem__(self, k):
+        assert weakref.ref(k)
+        if k in self:
+            del self._keyrefs[id(k)]
+            del self._keyvalues[id(k)]
+            del self._ref2id[id(self._id2ref[id(k)])]
+            del self._id2ref[id(k)]
+        else:
+            raise KeyError(str(k))
 
     def __getitem__(self, k):
         assert weakref.ref(k)
@@ -37,17 +90,23 @@ class WeakKeyIDDictionary(collections.MutableMapping):
             raise KeyError(str(k))
 
     def __setitem__(self, k, v):
-        assert weakref.ref(k)
+        ref = weakref.ref(k, self.__free_value)  # add callback
+        assert ref
         self._keyrefs[id(k)] = k
         self._keyvalues[id(k)] = v
+        self._ref2id[id(ref)] = id(k)
+        self._id2ref[id(k)] = ref
 
-    def __delitem__(self, k):
-        assert weakref.ref(k)
-        if k in self:
-            del self._keyrefs[id(k)]
-            del self._keyvalues[id(k)]
-        else:
-            raise KeyError(str(k))
+    def __free_value(self, ref):
+        """Free corresponding value when key has no more references"""
+        id_ = self._ref2id[id(ref)]
+        # key already removed from _keyrefs since it is a WeakValueDictionary
+        del self._keyvalues[id_]
+        del self._id2ref[id_]
+        del self._ref2id[id(ref)]
+
+    def get(self, k, default=None):
+        return self._keyvalues[id(k)] if k in self else default
 
     def keys(self):
         return itervalues(self._keyrefs)
@@ -63,26 +122,38 @@ class WeakKeyIDDictionary(collections.MutableMapping):
         for k in self:
             yield k, self[k]
 
-    def __iter__(self):
-        return itervalues(self._keyrefs)
-
-    def __contains__(self, k):
-        if k is None:
-            return False
-        return k is self._keyrefs.get(id(k))
-
-    def __len__(self):
-        return len(self._keyrefs)
-
-    def get(self, k, default=None):
-        return self._keyvalues[id(k)] if k in self else default
-
     def update(self, in_dict=None, **kwargs):
         if in_dict is not None:
             for key, value in iteritems(in_dict):
                 self.__setitem__(key, value)
         if len(kwargs) > 0:
             self.update(kwargs)
+
+
+class WeakSet(collections.MutableSet):
+    """Uses weak references to store the items in the set."""
+
+    def __init__(self, items=None):
+        super(WeakSet, self).__init__()
+        self._data = weakref.WeakKeyDictionary()
+        if items is not None:
+            self |= items
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def add(self, key):
+        self._data[key] = None
+
+    def discard(self, key):
+        if key in self._data:
+            del self._data[key]
 
 
 CheckedCall = collections.namedtuple('CheckedCall', ('value', 'invoked'))
@@ -100,7 +171,7 @@ def checked_call(func, *args, **kwargs):
     """
     try:
         return CheckedCall(func(*args, **kwargs), True)
-    except:
+    except Exception:
         tb = inspect.trace()
         if not len(tb) or tb[-1][0] is not inspect.currentframe():
             raise  # exception occurred inside func
@@ -189,17 +260,21 @@ else:
 
 # get_terminal_size was introduced in Python 3.3
 if hasattr(shutil, 'get_terminal_size'):
-    get_terminal_size = shutil.get_terminal_size
+    def get_terminal_size(fallback=(80, 24)):
+        try:
+            return shutil.get_terminal_size(fallback)
+        except Exception:
+            return terminal_size(fallback)
 else:
     def get_terminal_size(fallback=(80, 24)):
         w, h = fallback
         try:
             w = int(os.environ['COLUMNS'])
-        except:
+        except (KeyError, ValueError):
             pass
         try:
             h = int(os.environ['LINES'])
-        except:
+        except (KeyError, ValueError):
             pass
         return terminal_size(w, h)
 

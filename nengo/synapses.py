@@ -93,7 +93,7 @@ class Synapse(Process):
 
         shape_in = shape_out = as_shape(filt_view[0].shape, min_dim=1)
         step = self.make_step(
-            shape_in, shape_out, dt, None, y0=y0, dtype=x.dtype)
+            shape_in, shape_out, dt, None, y0=y0, dtype=filtered.dtype)
 
         for i, signal_in in enumerate(filt_view):
             filt_view[i] = step(i * dt, signal_in)
@@ -171,7 +171,7 @@ class LinearFilter(Synapse):
 
     References
     ----------
-    .. [1] http://en.wikipedia.org/wiki/Filter_%28signal_processing%29
+    .. [1] https://en.wikipedia.org/wiki/Filter_%28signal_processing%29
     """
 
     num = NdarrayParam('num', shape='*')
@@ -186,7 +186,24 @@ class LinearFilter(Synapse):
 
     def __repr__(self):
         return "%s(%s, %s, analog=%r)" % (
-            self.__class__.__name__, self.num, self.den, self.analog)
+            type(self).__name__, self.num, self.den, self.analog)
+
+    def combine(self, obj):
+        """Combine in series with another LinearFilter."""
+        if not isinstance(obj, LinearFilter):
+            raise ValidationError(
+                "Can only combine with other LinearFilters", attr='obj')
+        if self.analog != obj.analog:
+            raise ValidationError(
+                "Cannot combine analog and digital filters", attr='obj')
+        num = np.polymul(self.num, obj.num)
+        den = np.polymul(self.den, obj.den)
+        return LinearFilter(num, den,
+                            analog=self.analog,
+                            default_size_in=self.default_size_in,
+                            default_size_out=self.default_size_out,
+                            default_dt=self.default_dt,
+                            seed=self.seed)
 
     def evaluate(self, frequencies):
         """Evaluate the transfer function at the given frequencies.
@@ -302,7 +319,7 @@ class LinearFilter(Synapse):
 
         References
         ----------
-        .. [1] http://en.wikipedia.org/wiki/Digital_filter#Difference_equation
+        .. [1] https://en.wikipedia.org/wiki/Digital_filter#Difference_equation
         """
         def __init__(self, num, den, output, y0=None):
             super(LinearFilter.General, self).__init__(num, den, output)
@@ -331,6 +348,10 @@ class LinearFilter(Synapse):
 class Lowpass(LinearFilter):
     """Standard first-order lowpass filter synapse.
 
+    The impulse-response function is given by::
+
+        f(t) = (t / tau) * exp(-t / tau)
+
     Parameters
     ----------
     tau : float
@@ -348,7 +369,7 @@ class Lowpass(LinearFilter):
         self.tau = tau
 
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.tau)
+        return "%s(%r)" % (type(self).__name__, self.tau)
 
     def make_step(self, shape_in, shape_out, dt, rng, y0=None,
                   dtype=np.float64, **kwargs):
@@ -366,7 +387,7 @@ class Alpha(LinearFilter):
 
     The impulse-response function is given by::
 
-        alpha(t) = (t / tau) * exp(-t / tau)
+        alpha(t) = (t / tau**2) * exp(-t / tau)
 
     and was found by [1]_ to be a good basic model for synapses.
 
@@ -393,7 +414,7 @@ class Alpha(LinearFilter):
         self.tau = tau
 
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.tau)
+        return "%s(%r)" % (type(self).__name__, self.tau)
 
     def make_step(self, shape_in, shape_out, dt, rng, y0=None,
                   dtype=np.float64, **kwargs):
@@ -431,7 +452,7 @@ class Triangle(Synapse):
         self.t = t
 
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.t)
+        return "%s(%r)" % (type(self).__name__, self.t)
 
     def make_step(self, shape_in, shape_out, dt, rng, y0=None,
                   dtype=np.float64):
@@ -488,13 +509,7 @@ class SynapseParam(Parameter):
                  default=Unconfigurable, optional=True, readonly=None):
         super(SynapseParam, self).__init__(name, default, optional, readonly)
 
-    def __set__(self, instance, synapse):
-        if is_number(synapse):
-            synapse = Lowpass(synapse)
-        super(SynapseParam, self).__set__(instance, synapse)
-
-    def validate(self, instance, synapse):
-        if synapse is not None and not isinstance(synapse, Synapse):
-            raise ValidationError("'%s' is not a synapse type" % synapse,
-                                  attr=self.name, obj=instance)
-        super(SynapseParam, self).validate(instance, synapse)
+    def coerce(self, instance, synapse):
+        synapse = Lowpass(synapse) if is_number(synapse) else synapse
+        self.check_type(instance, synapse, Synapse)
+        return super(SynapseParam, self).coerce(instance, synapse)

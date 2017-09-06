@@ -39,9 +39,8 @@ all_examples, slow_examples, fast_examples = [], [], []
 for subdir, _, files in os.walk(examples_dir):
     if (os.path.sep + '.') in subdir:
         continue
-
-    examples = [os.path.join(subdir, os.path.splitext(f)[0]) for f in files
-                if f.endswith('.ipynb')]
+    files = [f for f in files if f.endswith('.ipynb')]
+    examples = [os.path.join(subdir, os.path.splitext(f)[0]) for f in files]
     all_examples.extend(examples)
     slow_examples.extend([e for e, f in zip(examples, files)
                           if os.path.splitext(f)[0] in too_slow])
@@ -54,8 +53,8 @@ slow_examples.sort()
 fast_examples.sort()
 
 
-def assert_noexceptions(nb_file, tmpdir, plt):
-    plt.saveas = None  # plt used to ensure figures are closed, but don't save
+def assert_noexceptions(nb_file, tmpdir):
+    plt = pytest.importorskip('matplotlib.pyplot')
     pytest.importorskip("IPython", minversion="1.0")
     pytest.importorskip("jinja2")
     from nengo.utils.ipython import export_py, load_notebook
@@ -65,42 +64,68 @@ def assert_noexceptions(nb_file, tmpdir, plt):
         tmpdir.join(os.path.splitext(os.path.basename(nb_path))[0]))
     export_py(nb, pyfile)
     execfile(pyfile, {})
+    plt.close('all')
 
 
 @pytest.mark.example
 @pytest.mark.parametrize('nb_file', fast_examples)
-def test_fast_noexceptions(nb_file, tmpdir, plt):
+def test_fast_noexceptions(nb_file, tmpdir):
     """Ensure that no cells raise an exception."""
-    assert_noexceptions(nb_file, tmpdir, plt)
+    assert_noexceptions(nb_file, tmpdir)
 
 
 @pytest.mark.slow
 @pytest.mark.example
 @pytest.mark.parametrize('nb_file', slow_examples)
-def test_slow_noexceptions(nb_file, tmpdir, plt):
+def test_slow_noexceptions(nb_file, tmpdir):
     """Ensure that no cells raise an exception."""
-    assert_noexceptions(nb_file, tmpdir, plt)
+    assert_noexceptions(nb_file, tmpdir)
+
+
+def iter_cells(nb_file, cell_type="code"):
+    from nengo.utils.ipython import load_notebook
+    nb = load_notebook(os.path.join(examples_dir, "%s.ipynb" % nb_file))
+
+    if nb.nbformat <= 3:
+        cells = []
+        for ws in nb.worksheets:
+            cells.extend(ws.cells)
+    else:
+        cells = nb.cells
+
+    for cell in cells:
+        if cell.cell_type == cell_type:
+            yield cell
 
 
 @pytest.mark.example
 @pytest.mark.parametrize('nb_file', all_examples)
-def test_nooutput(nb_file):
+def test_no_signature(nb_file):
+    from nengo.utils.ipython import load_notebook
+    nb = load_notebook(os.path.join(examples_dir, "%s.ipynb" % nb_file))
+    assert 'signature' not in nb.metadata, "Notebook has signature"
+
+
+@pytest.mark.example
+@pytest.mark.parametrize('nb_file', all_examples)
+def test_no_outputs(nb_file):
     """Ensure that no cells have output."""
     pytest.importorskip("IPython", minversion="1.0")
-    pytest.importorskip("jinja2")
-    from nengo.utils.ipython import load_notebook
 
-    def check_all(cells):
-        for cell in cells:
-            if cell.cell_type == 'code':
-                assert cell.outputs == [], ("Clear outputs in %s" % nb_path)
+    for cell in iter_cells(nb_file):
+        assert cell.outputs == [], "Cell outputs not cleared"
 
-    nb_path = os.path.join(examples_dir, "%s.ipynb" % nb_file)
-    nb = load_notebook(nb_path)
 
-    assert 'signature' not in nb.metadata, "Remove signature in %s" % nb_path
-    if nb.nbformat <= 3:
-        for ws in nb.worksheets:
-            check_all(ws.cells)
+@pytest.mark.example
+@pytest.mark.parametrize('nb_file', all_examples)
+def test_loads_ipynb_ext(nb_file):
+    pytest.importorskip("IPython", minversion="1.0")
+
+    no_sim = True
+    for cell in iter_cells(nb_file):
+        if "%load_ext nengo.ipynb" in cell.source:
+            break
+        if "nengo.Simulator(" in cell.source:
+            no_sim = False
     else:
-        check_all(nb.cells)
+        assert no_sim, "nengo.ipynb extension not loaded"

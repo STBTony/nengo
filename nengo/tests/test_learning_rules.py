@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 
 import nengo
+from nengo.builder import Builder
+from nengo.builder.operator import Reset, Copy
+from nengo.builder.signal import Signal
 from nengo.dists import UniformHypersphere
+from nengo.exceptions import ValidationError
 from nengo.learning_rules import LearningRuleTypeParam, PES, BCM, Oja, Voja
 from nengo.processes import WhiteSignal
 
@@ -90,7 +94,7 @@ def test_pes_ens_slice(Simulator, plt, seed):
 
 def test_pes_neuron_neuron(Simulator, plt, seed, rng):
     n = 200
-    initial_weights = rng.uniform(high=2e-4, size=(n, n))
+    initial_weights = rng.uniform(high=4e-4, size=(n, n))
     _test_pes(Simulator, nengo.LIF, plt, seed,
               pre_neurons=True, post_neurons=True,
               n=n, transform=initial_weights)
@@ -221,7 +225,8 @@ def test_unsupervised(Simulator, rule_type, solver, seed, rng, plt):
     assert not np.allclose(sim.data[weights_p][0], sim.data[weights_p][-1])
 
 
-def learning_net(learning_rule, net, rng):
+def learning_net(learning_rule=nengo.PES, net=None, rng=np.random):
+    net = nengo.Network() if net is None else net
     with net:
         if learning_rule is nengo.PES:
             learning_rule_type = learning_rule(learning_rate=1e-5)
@@ -241,16 +246,16 @@ def learning_net(learning_rule, net, rng):
             nengo.Connection(u, err)
             nengo.Connection(err, conn.learning_rule)
 
-        activity_p = nengo.Probe(pre.neurons, synapse=0.01)
-        weights_p = nengo.Probe(conn, 'weights', synapse=.01, sample_every=.01)
-    return net, activity_p, weights_p
+        net.activity_p = nengo.Probe(pre.neurons, synapse=0.01)
+        net.weights_p = nengo.Probe(
+            conn, 'weights', synapse=None, sample_every=.01)
+    return net
 
 
 @pytest.mark.parametrize('learning_rule', [nengo.PES, nengo.BCM, nengo.Oja])
 def test_dt_dependence(Simulator, plt, learning_rule, seed, rng):
     """Learning rules should work the same regardless of dt."""
-    m, activity_p, trans_p = learning_net(
-        learning_rule, nengo.Network(seed=seed), rng)
+    m = learning_net(learning_rule, nengo.Network(seed=seed), rng)
 
     trans_data = []
     # Using dts greater near tau_ref (0.002 by default) causes learning to
@@ -260,11 +265,11 @@ def test_dt_dependence(Simulator, plt, learning_rule, seed, rng):
     for c, dt in zip(colors, dts):
         with Simulator(m, dt=dt) as sim:
             sim.run(0.1)
-        trans_data.append(sim.data[trans_p])
+        trans_data.append(sim.data[m.weights_p])
         plt.subplot(2, 1, 1)
-        plt.plot(sim.trange(dt=0.01), sim.data[trans_p][..., 0], c=c)
+        plt.plot(sim.trange(dt=0.01), sim.data[m.weights_p][..., 0], c=c)
         plt.subplot(2, 1, 2)
-        plt.plot(sim.trange(), sim.data[activity_p], c=c)
+        plt.plot(sim.trange(), sim.data[m.activity_p], c=c)
 
     plt.subplot(2, 1, 1)
     plt.xlim(right=sim.trange()[-1])
@@ -274,14 +279,13 @@ def test_dt_dependence(Simulator, plt, learning_rule, seed, rng):
     plt.ylabel("Presynaptic activity")
 
     assert np.allclose(trans_data[0], trans_data[1], atol=3e-3)
-    assert not np.allclose(sim.data[trans_p][0], sim.data[trans_p][-1])
+    assert not np.allclose(sim.data[m.weights_p][0], sim.data[m.weights_p][-1])
 
 
 @pytest.mark.parametrize('learning_rule', [nengo.PES, nengo.BCM, nengo.Oja])
 def test_reset(Simulator, learning_rule, plt, seed, rng):
     """Make sure resetting learning rules resets all state."""
-    m, activity_p, trans_p = learning_net(
-        learning_rule, nengo.Network(seed=seed), rng)
+    m = learning_net(learning_rule, nengo.Network(seed=seed), rng)
 
     with Simulator(m) as sim:
         sim.run(0.1)
@@ -289,8 +293,8 @@ def test_reset(Simulator, learning_rule, plt, seed, rng):
 
         first_t = sim.trange()
         first_t_trans = sim.trange(dt=0.01)
-        first_activity_p = np.array(sim.data[activity_p], copy=True)
-        first_trans_p = np.array(sim.data[trans_p], copy=True)
+        first_activity_p = np.array(sim.data[m.activity_p], copy=True)
+        first_weights_p = np.array(sim.data[m.weights_p], copy=True)
 
         sim.reset()
         sim.run(0.3)
@@ -298,16 +302,16 @@ def test_reset(Simulator, learning_rule, plt, seed, rng):
     plt.subplot(2, 1, 1)
     plt.ylabel("Neural activity")
     plt.plot(first_t, first_activity_p, c='b')
-    plt.plot(sim.trange(), sim.data[activity_p], c='g')
+    plt.plot(sim.trange(), sim.data[m.activity_p], c='g')
     plt.subplot(2, 1, 2)
     plt.ylabel("Connection weight")
-    plt.plot(first_t_trans, first_trans_p[..., 0], c='b')
-    plt.plot(sim.trange(dt=0.01), sim.data[trans_p][..., 0], c='g')
+    plt.plot(first_t_trans, first_weights_p[..., 0], c='b')
+    plt.plot(sim.trange(dt=0.01), sim.data[m.weights_p][..., 0], c='g')
 
     assert np.allclose(sim.trange(), first_t)
     assert np.allclose(sim.trange(dt=0.01), first_t_trans)
-    assert np.allclose(sim.data[activity_p], first_activity_p)
-    assert np.allclose(sim.data[trans_p], first_trans_p)
+    assert np.allclose(sim.data[m.activity_p], first_activity_p)
+    assert np.allclose(sim.data[m.weights_p], first_weights_p)
 
 
 def test_learningruletypeparam():
@@ -380,11 +384,13 @@ def test_voja_encoders(Simulator, nl_nodirect, rng, seed):
         u = nengo.Node(output=learned_vector)
         x = nengo.Ensemble(n, dimensions=len(learned_vector),
                            intercepts=intercepts, encoders=encoders,
+                           max_rates=nengo.dists.Uniform(300., 400.),
                            radius=2.0)  # to test encoder scaling
 
         conn = nengo.Connection(
             u, x, synapse=None, learning_rule_type=Voja(learning_rate=1e-1))
         p_enc = nengo.Probe(conn.learning_rule, 'scaled_encoders')
+        p_enc_ens = nengo.Probe(x, 'scaled_encoders')
 
     with Simulator(m) as sim:
         sim.run(1.0)
@@ -395,7 +401,7 @@ def test_voja_encoders(Simulator, nl_nodirect, rng, seed):
     # during the build process, because it modifies the scaled_encoders signal
     # proportional to this factor. Therefore, we should check that its
     # assumption actually holds.
-    encoder_scale = (sim.model.params[x].gain / x.radius)[:, np.newaxis]
+    encoder_scale = (sim.data[x].gain / x.radius)[:, np.newaxis]
     assert np.allclose(sim.data[x].encoders,
                        sim.data[x].scaled_encoders / encoder_scale)
 
@@ -411,6 +417,8 @@ def test_voja_encoders(Simulator, nl_nodirect, rng, seed):
     assert np.allclose(
         sim.data[p_enc][tend, :n_change] / encoder_scale[:n_change],
         learned_vector, atol=0.01)
+    # Check that encoders probed from ensemble equal encoders probed from Voja
+    assert np.allclose(sim.data[p_enc], sim.data[p_enc_ens])
 
 
 def test_voja_modulate(Simulator, nl_nodirect, seed):
@@ -466,3 +474,52 @@ def test_frozen():
 
     with pytest.raises((ValueError, RuntimeError)):
         a.learning_rate = 1e-1
+
+
+def test_pes_direct_errors():
+    """Test that applying a learning rule to a direct ensemble errors."""
+    with nengo.Network():
+        pre = nengo.Ensemble(10, 1, neuron_type=nengo.Direct())
+        post = nengo.Ensemble(10, 1)
+        conn = nengo.Connection(pre, post)
+        with pytest.raises(ValidationError):
+            conn.learning_rule_type = nengo.PES()
+
+
+def test_custom_type(Simulator):
+    """Test with custom learning rule type.
+
+    A custom learning type may have ``size_in`` not equal to 0, 1, or None.
+    """
+
+    class TestRule(nengo.learning_rules.LearningRuleType):
+        modifies = 'decoders'
+
+        def __init__(self):
+            super(TestRule, self).__init__(1.0, size_in=3)
+
+    @Builder.register(TestRule)
+    def build_test_rule(model, test_rule, rule):
+        error = Signal(np.zeros(rule.connection.size_in))
+        model.add_op(Reset(error))
+        model.sig[rule]['in'] = error[:rule.size_in]
+
+        model.add_op(Copy(error, model.sig[rule]['delta']))
+
+    with nengo.Network() as net:
+        a = nengo.Ensemble(10, 1)
+        b = nengo.Ensemble(10, 1)
+        conn = nengo.Connection(a.neurons, b, transform=np.zeros((1, 10)),
+                                learning_rule_type=TestRule())
+
+        err = nengo.Node([1, 2, 3])
+        nengo.Connection(err, conn.learning_rule, synapse=None)
+
+        p = nengo.Probe(conn, 'weights')
+
+    with Simulator(net) as sim:
+        sim.run(sim.dt * 5)
+
+    assert np.allclose(sim.data[p][:, 0, :3],
+                       np.outer(np.arange(1, 6), np.arange(1, 4)))
+    assert np.allclose(sim.data[p][:, :, 3:], 0)

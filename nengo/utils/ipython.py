@@ -75,6 +75,7 @@ try:
 except ImportError:
     def get_ipython():
         return None
+assert get_ipython
 
 
 def has_ipynb_widgets():
@@ -101,7 +102,7 @@ def has_ipynb_widgets():
 
 
 def hide_input():
-    """Hide the input of the IPython notebook input block this is executed in.
+    """Hide the input of the Jupyter notebook input block this is executed in.
 
     Returns a link to toggle the visibility of the input block.
     """
@@ -175,12 +176,16 @@ def export_py(nb, dest_path=None):
     """
     exporter = PythonExporter()
     body, resources = exporter.from_notebook_node(nb)
-    # We'll remove %matplotlib inline magic, but leave the rest
-    body = body.replace(u"get_ipython().magic(u'matplotlib inline')\n", u"")
-    body = body.replace(u"get_ipython().magic('matplotlib inline')\n", u"")
-    # Also remove the IPython notebook extension
-    body = body.replace(u"get_ipython().magic(u'load_ext nengo.ipynb')\n", u"")
-    body = body.replace(u"get_ipython().magic('load_ext nengo.ipynb')\n", u"")
+
+    # Remove all lines with get_ipython
+    while u"get_ipython()" in body:
+        ind0 = body.find(u"get_ipython()")
+        ind1 = body.find(u"\n", ind0)
+        body = body[:ind0] + body[(ind1 + 1):]
+
+    if u"plt" in body:
+        body += u"\nplt.show()\n"
+
     if dest_path is not None:
         with io.open(dest_path, 'w', encoding='utf-8') as f:
             f.write(body)
@@ -391,7 +396,7 @@ class NotebookRunner(object):
         for i, cell in enumerate(self.iter_code_cells()):
             try:
                 self.run_cell(cell)
-            except:
+            except Exception:
                 if not skip_exceptions:
                     raise
             if progress_callback is not None:

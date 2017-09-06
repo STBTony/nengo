@@ -36,7 +36,7 @@ def tuning_curves(ens, sim, inputs=None):
         The activities of the individual neurons given the `inputs`.
         For ensembles with 1 dimension, the rows correspond to the `inputs`
         and the columns to individual neurons.
-        For ensembles with > 1 dimension, the first dimension enumerates the
+        For ensembles with > 1 dimension, the last dimension enumerates the
         neurons, the remaining dimensions map to `inputs`.
 
     See Also
@@ -54,7 +54,7 @@ def tuning_curves(ens, sim, inputs=None):
         inputs = np.asarray(inputs).T
 
     eval_points = inputs.reshape((-1, ens.dimensions))
-    activities = get_activities(sim.model, ens, eval_points)
+    activities = get_activities(sim.data[ens], ens, eval_points)
     return inputs, activities.reshape(inputs.shape[:-1] + (-1,))
 
 

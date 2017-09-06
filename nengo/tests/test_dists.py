@@ -3,6 +3,7 @@ import pytest
 
 import nengo.dists as dists
 import nengo.utils.numpy as npext
+from nengo.utils.testing import warns
 from nengo.exceptions import ValidationError
 
 
@@ -69,19 +70,15 @@ def test_exponential(scale, shift, high, rng):
         assert abs(np.mean(samples - shift) - scale) < ci
 
 
-@pytest.mark.parametrize("dimensions", [0, 1, 2, 5])
-def test_hypersphere(dimensions, rng):
-    n = 150 * dimensions
-    if dimensions < 1:
-        with pytest.raises(ValueError):
-            dist = dists.UniformHypersphere().sample(1, dimensions)
-    else:
-        dist = dists.UniformHypersphere()
-        samples = dist.sample(n, dimensions, rng=rng)
-        assert samples.shape == (n, dimensions)
-        assert np.allclose(np.mean(samples, axis=0), 0, atol=0.1)
-        hist, _ = np.histogramdd(samples, bins=5)
-        assert np.allclose(hist - np.mean(hist), 0, atol=0.1 * n)
+@pytest.mark.parametrize(
+    "min_magnitude,d", [(0, 1), (0, 2), (0, 5), (0.6, 1), (0.3, 2), (0.4, 5)])
+def test_hypersphere_volume(min_magnitude, d, rng):
+    n = 150 * d
+    dist = dists.UniformHypersphere(min_magnitude=min_magnitude)
+    samples = dist.sample(n, d, rng=rng)
+    assert samples.shape == (n, d)
+    assert np.allclose(np.mean(samples, axis=0), 0, atol=0.1)
+    assert np.all(npext.norm(samples, axis=1) >= min_magnitude)
 
 
 @pytest.mark.parametrize("dimensions", [1, 2, 5])
@@ -92,6 +89,16 @@ def test_hypersphere_surface(dimensions, rng):
     assert samples.shape == (n, dimensions)
     assert np.allclose(npext.norm(samples, axis=1), 1)
     assert np.allclose(np.mean(samples, axis=0), 0, atol=0.25 / dimensions)
+
+
+def test_hypersphere_dimension_fail(rng):
+    with pytest.raises(ValueError):
+        dists.UniformHypersphere(0).sample(1, 0)
+
+
+def test_hypersphere_warns(rng):
+    with warns(UserWarning):
+        dists.UniformHypersphere(surface=True, min_magnitude=0.1)
 
 
 @pytest.mark.parametrize("weights", [None, [5, 1, 2, 9], [3, 2, 1, 0]])
@@ -114,6 +121,36 @@ def test_choice(weights, rng):
     p = np.ones(N) / N if dist.p is None else dist.p
     sterr = 1. / np.sqrt(n)  # expected maximum standard error
     assert np.allclose(p, p_empirical, atol=2 * sterr)
+
+
+@pytest.mark.parametrize("shape", [(12, 2), (7, 1), (7,), (1, 1)])
+def test_samples(shape, rng):
+    samples = rng.random_sample(size=shape)
+    d = dists.Samples(samples)
+    dims = None if len(shape) == 1 else shape[1]
+    assert np.allclose(d.sample(shape[0], dims), samples)
+
+
+@pytest.mark.parametrize("samples", [[1., 2., 3.], [[1, 2], [3, 4]]])
+def test_samples_list(samples):
+    d = dists.Samples(samples)
+    shape = np.array(samples).shape
+    dims = None if len(shape) == 1 else shape[1]
+    assert np.allclose(d.sample(shape[0], dims), samples)
+
+
+def test_samples_errors(rng):
+    samples = rng.random_sample(size=(12, 2))
+    with pytest.raises(ValidationError):
+        dists.Samples(samples).sample(11, 2)
+    with pytest.raises(ValidationError):
+        dists.Samples(samples).sample(12, 1)
+    with pytest.raises(ValidationError):
+        dists.Samples(samples).sample(12)
+
+    samples = rng.random_sample(size=12)
+    with pytest.raises(ValidationError):
+        dists.Samples(samples).sample(12, 2)
 
 
 @pytest.mark.parametrize("n,m", [(99, 1), (50, 50)])

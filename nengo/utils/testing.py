@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import collections
 import inspect
 import itertools
 import logging
@@ -184,14 +185,44 @@ class Logger(Recorder):
             del self.handler
 
 
+RecordedWarning = collections.namedtuple(
+    'RecordedWarning', ['message', 'category', 'filename', 'lineno', 'module'])
+
+
 class WarningCatcher(object):
+
+    def __init__(self):
+        self.recorded = []
+
+    def warn_explicit(self, message, category, filename, lineno,
+                      module=None, registry=None, mod_globals=None):
+        self.recorded.append(RecordedWarning(
+            message, category, filename, lineno, module))
+        self.old_warn_explicit(
+            message, category, filename, lineno, module, registry, mod_globals)
+
+    def warn(self, message, category=None, stacklevel=1):
+        if isinstance(message, Warning):
+            category = type(message)
+        category = UserWarning if category is None else category
+        # warnings.warn uses sys._getframe and other mechanisms to get
+        # the filename, lineno, and module. We won't bother for now.
+        self.recorded.append(RecordedWarning(
+            message, category, None, None, None))
+        # We increase stacklevel by 1 to account for this function being
+        # in the stack trace.
+        self.old_warn(message, category, stacklevel + 1)
+
     def __enter__(self):
-        self.catcher = warnings.catch_warnings(record=True)
-        self.record = self.catcher.__enter__()
-        warnings.simplefilter('always')
+        self.old_warn_explicit = warnings.warn_explicit
+        self.old_warn = warnings.warn
+        warnings.warn_explicit = self.warn_explicit
+        warnings.warn = self.warn
+        return self
 
     def __exit__(self, type, value, traceback):
-        self.catcher.__exit__(type, value, traceback)
+        warnings.warn_explicit = self.old_warn_explicit
+        warnings.warn = self.old_warn
 
 
 class warns(WarningCatcher):
@@ -199,15 +230,15 @@ class warns(WarningCatcher):
         import pytest
         self._pytest = pytest
         self.warning_type = warning_type
+        super(warns, self).__init__()
 
     def __exit__(self, type, value, traceback):
-        if not any(r.category is self.warning_type for r in self.record):
+        if not any(r.category is self.warning_type for r in self.recorded):
             self._pytest.fail("DID NOT WARN")
-
         super(warns, self).__exit__(type, value, traceback)
 
 
-def allclose(t, targets, signals,  # noqa:C901
+def allclose(t, targets, signals,  # noqa: C901
              atol=1e-8, rtol=1e-5, buf=0, delay=0,
              plt=None, show=False, labels=None, individual_results=False):
     """Ensure all signal elements are within tolerances.
@@ -321,7 +352,7 @@ def allclose(t, targets, signals,  # noqa:C901
                            atol=atol, rtol=rtol)
 
 
-def find_modules(root_path, prefix=[], pattern='^test_.*\\.py$'):
+def find_modules(root_path, prefix=None, pattern='^test_.*\\.py$'):
     """Find matching modules (files) in all subdirectories of a given path.
 
     Parameters
@@ -340,6 +371,7 @@ def find_modules(root_path, prefix=[], pattern='^test_.*\\.py$'):
         A list of modules. Each item in the list is a list of strings
         containing the module path.
     """
+    prefix = [] if prefix is None else prefix
     if is_string(prefix):
         prefix = [prefix]
     elif not isinstance(prefix, list):
@@ -440,7 +472,7 @@ class ThreadedAssertion(object):
             try:
                 self.parent.assert_thread(self)
                 self.assertion_result = True
-            except:
+            except Exception:
                 self.assertion_result = False
                 self.exc_info = sys.exc_info()
             finally:

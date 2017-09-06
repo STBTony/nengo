@@ -5,6 +5,7 @@ import numpy as np
 import nengo
 import nengo.utils.numpy as npext
 from nengo.exceptions import ValidationError
+from nengo.spa.vocab import VocabularyParam
 from nengo.utils.compat import is_iterable
 
 
@@ -16,11 +17,10 @@ def enable_spa_params(model):
     model : Network
         Model to activate SPA specific parameters for.
     """
-    from nengo.spa.vocab import VocabularyParam
 
     for obj_type in [nengo.Node, nengo.Ensemble]:
         model.config[obj_type].set_param(
-            'vocab', VocabularyParam('vocab', optional=True))
+            'vocab', VocabularyParam('vocab', default=None, optional=True))
 
 
 def similarity(data, vocab, normalize=False):
@@ -48,7 +48,7 @@ def similarity(data, vocab, normalize=False):
         vectors = np.array(vocab, copy=False, ndmin=2)
     else:
         raise ValidationError("%r object is not a valid vocabulary"
-                              % (vocab.__class__.__name__), attr='vocab')
+                              % (type(vocab).__name__), attr='vocab')
 
     data = np.array(data, copy=False, ndmin=2)
     dots = np.dot(data, vectors.T)

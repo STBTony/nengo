@@ -1,9 +1,13 @@
+import sys
+import weakref
+
 import numpy as np
 import pytest
 
 from nengo.utils.compat import range
 from nengo.utils.stdlib import (
-    checked_call, groupby, Timer, WeakKeyIDDictionary)
+    checked_call, groupby, Timer,
+    WeakKeyDefaultDict, WeakKeyIDDictionary, WeakSet)
 
 
 def test_checked_call():
@@ -113,6 +117,27 @@ class C:
         pass
 
 
+def test_weakkeydefaultdict():
+    factory = lambda: 'default'
+    d = WeakKeyDefaultDict(factory)
+    o = C()
+
+    assert len(d) == 0
+    assert d[o] == 'default'
+
+    d[o] = 'changed'
+    assert len(d) == 1
+    assert d[o] == 'changed'
+
+    del d[o]
+    assert len(d) == 0
+    assert o not in d
+
+    d[o] = 'changed'
+    del o
+    assert len(d) == 0
+
+
 def test_make_weakkeydict_from_dict():
     o = C()
     d = WeakKeyIDDictionary({o: 364})
@@ -161,8 +186,9 @@ def test_weakkeydict_setdefault(key=C(), value1="v1", value2="v2"):
     assert d[key] is value1
 
 
-def test_weakkeydict_update(in_d={C(): 1, C(): 2, C(): 3}):
+def test_weakkeydict_update():
     """This exercises d.update(), len(d), d.keys(), in d,  d.get(), d[]."""
+    in_d = {C(): 1, C(): 2, C(): 3}
     d = WeakKeyIDDictionary()
     d.update(in_d)
     assert len(d) == len(in_d)
@@ -207,3 +233,33 @@ def test_weakkeydict_bad_delitem():
         d[13]
     with pytest.raises(TypeError):
         d[13] = 13
+
+
+def test_weakkeydict_frees_values():
+    d = WeakKeyIDDictionary()
+    k = C()
+    v = C()
+    d[k] = v
+    weak_v = weakref.ref(v)
+    del v
+    assert sys.getrefcount(weak_v()) > 1  # function argument might make it > 1
+    del k
+    v = weak_v()
+    assert v is None,  "Value in WeakKeyIDDictionary not garbage collected."
+
+
+def test_weakset():
+    s = WeakSet()
+    k = C()
+
+    s.add(k)
+    assert len(s) == 1
+    assert k in s
+
+    s.discard(k)
+    assert len(s) == 0
+    assert k not in s
+
+    s.add(k)
+    del k
+    assert len(s) == 0

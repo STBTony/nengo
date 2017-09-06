@@ -1,7 +1,7 @@
 import numpy as np
 
 from nengo.builder import Builder, Operator, Signal
-from nengo.builder.operator import DotInc, ElementwiseInc, Reset
+from nengo.builder.operator import DotInc, ElementwiseInc, Copy, Reset
 from nengo.connection import LearningRule
 from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError
@@ -11,17 +11,17 @@ from nengo.synapses import Lowpass
 
 
 class SimBCM(Operator):
-    """Calculate connection weight change according to the BCM rule.
+    r"""Calculate connection weight change according to the BCM rule.
 
     Implements the Bienenstock-Cooper-Munroe learning rule of the form
 
-    .. math:: \Delta \omega_{ij} = \kappa a_j (a_j - \\theta_j) a_i
+    .. math:: \Delta \omega_{ij} = \kappa a_j (a_j - \theta_j) a_i
 
     where
 
     * :math:`\kappa` is a scalar learning rate,
     * :math:`a_j` is the activity of a postsynaptic neuron,
-    * :math:`\\theta_j` is an estimate of the average :math:`a_j`, and
+    * :math:`\theta_j` is an estimate of the average :math:`a_j`, and
     * :math:`a_i` is the activity of a presynaptic neuron.
 
     Parameters
@@ -31,7 +31,7 @@ class SimBCM(Operator):
     post_filtered : Signal
         The postsynaptic activity, :math:`a_j`.
     theta : Signal
-        The modification threshold, :math:`\\theta_j`.
+        The modification threshold, :math:`\theta_j`.
     delta : Signal
         The synaptic weight change to be applied, :math:`\Delta \omega_{ij}`.
     learning_rate : float
@@ -52,7 +52,7 @@ class SimBCM(Operator):
     tag : str or None
         A label associated with the operator, for debugging purposes.
     theta : Signal
-        The modification threshold, :math:`\\theta_j`.
+        The modification threshold, :math:`\theta_j`.
 
     Notes
     -----
@@ -65,16 +65,28 @@ class SimBCM(Operator):
     def __init__(self, pre_filtered, post_filtered, theta, delta,
                  learning_rate, tag=None):
         super(SimBCM, self).__init__(tag=tag)
-        self.pre_filtered = pre_filtered
-        self.post_filtered = post_filtered
-        self.theta = theta
-        self.delta = delta
         self.learning_rate = learning_rate
 
         self.sets = []
         self.incs = []
         self.reads = [pre_filtered, post_filtered, theta]
         self.updates = [delta]
+
+    @property
+    def delta(self):
+        return self.updates[0]
+
+    @property
+    def pre_filtered(self):
+        return self.reads[0]
+
+    @property
+    def post_filtered(self):
+        return self.reads[1]
+
+    @property
+    def theta(self):
+        return self.reads[2]
 
     def _descstr(self):
         return 'pre=%s, post=%s -> %s' % (
@@ -94,18 +106,18 @@ class SimBCM(Operator):
 
 
 class SimOja(Operator):
-    """Calculate connection weight change according to the Oja rule.
+    r"""Calculate connection weight change according to the Oja rule.
 
     Implements the Oja learning rule of the form
 
-    .. math:: \Delta \omega_{ij} = \kappa (a_i a_j - \\beta a_j^2 \omega_{ij})
+    .. math:: \Delta \omega_{ij} = \kappa (a_i a_j - \beta a_j^2 \omega_{ij})
 
     where
 
     * :math:`\kappa` is a scalar learning rate,
     * :math:`a_i` is the activity of a presynaptic neuron,
     * :math:`a_j` is the activity of a postsynaptic neuron,
-    * :math:`\\beta` is a scalar forgetting rate, and
+    * :math:`\beta` is a scalar forgetting rate, and
     * :math:`\omega_{ij}` is the connection weight between the two neurons.
 
     Parameters
@@ -121,14 +133,14 @@ class SimOja(Operator):
     learning_rate : float
         The scalar learning rate, :math:`\kappa`.
     beta : float
-        The scalar forgetting rate, :math:`\\beta`.
+        The scalar forgetting rate, :math:`\beta`.
     tag : str, optional (Default: None)
         A label associated with the operator, for debugging purposes.
 
     Attributes
     ----------
     beta : float
-        The scalar forgetting rate, :math:`\\beta`.
+        The scalar forgetting rate, :math:`\beta`.
     delta : Signal
         The synaptic weight change to be applied, :math:`\Delta \omega_{ij}`.
     learning_rate : float
@@ -153,10 +165,6 @@ class SimOja(Operator):
     def __init__(self, pre_filtered, post_filtered, weights, delta,
                  learning_rate, beta, tag=None):
         super(SimOja, self).__init__(tag=tag)
-        self.pre_filtered = pre_filtered
-        self.post_filtered = post_filtered
-        self.weights = weights
-        self.delta = delta
         self.learning_rate = learning_rate
         self.beta = beta
 
@@ -164,6 +172,22 @@ class SimOja(Operator):
         self.incs = []
         self.reads = [pre_filtered, post_filtered, weights]
         self.updates = [delta]
+
+    @property
+    def delta(self):
+        return self.updates[0]
+
+    @property
+    def pre_filtered(self):
+        return self.reads[0]
+
+    @property
+    def post_filtered(self):
+        return self.reads[1]
+
+    @property
+    def weights(self):
+        return self.reads[2]
 
     def _descstr(self):
         return 'pre=%s, post=%s -> %s' % (
@@ -189,7 +213,7 @@ class SimOja(Operator):
 
 
 class SimVoja(Operator):
-    """Simulates a simplified version of Oja's rule in the vector space.
+    r"""Simulates a simplified version of Oja's rule in the vector space.
 
     See :doc:`examples/learn_associations` for details.
 
@@ -244,12 +268,7 @@ class SimVoja(Operator):
     def __init__(self, pre_decoded, post_filtered, scaled_encoders, delta,
                  scale, learning_signal, learning_rate, tag=None):
         super(SimVoja, self).__init__(tag=tag)
-        self.pre_decoded = pre_decoded
-        self.post_filtered = post_filtered
-        self.scaled_encoders = scaled_encoders
-        self.delta = delta
         self.scale = scale
-        self.learning_signal = learning_signal
         self.learning_rate = learning_rate
 
         self.sets = []
@@ -257,6 +276,30 @@ class SimVoja(Operator):
         self.reads = [
             pre_decoded, post_filtered, scaled_encoders, learning_signal]
         self.updates = [delta]
+
+    @property
+    def delta(self):
+        return self.updates[0]
+
+    @property
+    def learning_signal(self):
+        return self.reads[3]
+
+    @property
+    def pre_decoded(self):
+        return self.reads[0]
+
+    @property
+    def post_filtered(self):
+        return self.reads[1]
+
+    @property
+    def scaled_encoders(self):
+        return self.reads[2]
+
+    @property
+    def weights(self):
+        return self.reads[2]
 
     def _descstr(self):
         return 'pre=%s, post=%s -> %s' % (
@@ -330,25 +373,15 @@ def build_learning_rule(model, rule):
         post = get_post_ens(conn)
         target = model.sig[post]['encoders']
         tag = "encoders += delta"
-        delta = Signal(
-            np.zeros((post.n_neurons, post.dimensions)), name='Delta')
     elif rule.modifies in ('decoders', 'weights'):
-        pre = get_pre_ens(conn)
         target = model.sig[conn]['weights']
         tag = "weights += delta"
-        if not conn.is_decoded:
-            post = get_post_ens(conn)
-            delta = Signal(
-                np.zeros((post.n_neurons, pre.n_neurons)), name='Delta')
-        else:
-            delta = Signal(
-                np.zeros((rule.size_in, pre.n_neurons)), name='Delta')
     else:
         raise BuildError("Unknown target %r" % rule.modifies)
 
-    assert delta.shape == target.shape
-    model.add_op(
-        ElementwiseInc(model.sig['common'][1], delta, target, tag=tag))
+    delta = Signal(np.zeros(target.shape), name='Delta')
+
+    model.add_op(Copy(delta, target, inc=True, tag=tag))
     model.sig[rule]['delta'] = delta
 
     model.params[rule] = None  # by default, no build-time info to return
@@ -540,7 +573,7 @@ def build_pes(model, pes, rule):
                  else conn.pre_obj.size_in)
     lr_sig = Signal(-pes.learning_rate * model.dt / n_neurons,
                     name="PES:learning_rate")
-    model.add_op(DotInc(lr_sig, error, correction, tag="PES:correct"))
+    model.add_op(ElementwiseInc(lr_sig, error, correction, tag="PES:correct"))
 
     if not conn.is_decoded:
         post = get_post_ens(conn)

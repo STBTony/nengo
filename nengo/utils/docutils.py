@@ -106,15 +106,15 @@ class NotebookDirective(Directive):
             nb = ipext.export_evaluated(
                 nb, dest_path, skip_exceptions=skip_exceptions)
         except Exception as e:
-            warnings.warn("Notebook conversion failed with the following "
-                          "traceback: \n%s" % e)
+            warnings.warn("Conversion of %s failed with the following "
+                          "traceback:\n%s" % (nb_filename, e))
         evaluated_html = ipext.export_html(
             nb, image_dir=image_dir, image_rel_dir=image_rel_dir)
 
         # Create link to notebook and script files
-        link_rst = "Download ``%s`` as an %s or %s." % (
+        link_rst = "Download ``%s`` as a %s or %s." % (
             os.path.splitext(nb_basename)[0],
-            formatted_link(nb_basename, "IPython notebook"),
+            formatted_link(nb_basename, "Jupyter notebook"),
             formatted_link(rel_path_py, "Python script"))
 
         self.state_machine.insert_input([link_rst], rst_file)
@@ -158,7 +158,7 @@ def formatted_link(path, text=None):
 
 
 class notebook_node(nodes.raw):
-    """An evaluated IPython notebook"""
+    """An evaluated Jupyter notebook"""
 
 
 def visit_notebook_node(self, node):

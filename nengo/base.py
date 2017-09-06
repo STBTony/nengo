@@ -1,13 +1,21 @@
+from copy import copy
 import warnings
 
 import numpy as np
 
+import nengo
 from nengo.config import SupportDefaultsMixin
-from nengo.exceptions import ValidationError
+from nengo.exceptions import NotAddedToNetworkWarning, ValidationError
 from nengo.params import (
-    FrozenObject, is_param, IntParam, NumberParam, Parameter, StringParam,
-    Unconfigurable)
-from nengo.utils.compat import is_integer, range, with_metaclass
+    FrozenObject,
+    IntParam,
+    iter_params,
+    NumberParam,
+    Parameter,
+    StringParam,
+    Unconfigurable,
+)
+from nengo.utils.compat import is_integer, iteritems, range, with_metaclass
 from nengo.utils.numpy import as_shape, maxint
 
 
@@ -21,13 +29,12 @@ class NetworkMember(type):
 
     def __call__(cls, *args, **kwargs):
         """Override default __call__ behavior so that Network.add is called."""
-        from nengo.network import Network
         inst = cls.__new__(cls)
         add_to_container = kwargs.pop('add_to_container', True)
         # Do the __init__ before adding in case __init__ errors out
         inst.__init__(*args, **kwargs)
         if add_to_container:
-            Network.add(inst)
+            nengo.Network.add(inst)
         inst._initialized = True  # value doesn't matter, just existance
         return inst
 
@@ -50,18 +57,45 @@ class NengoObject(with_metaclass(NetworkMember, SupportDefaultsMixin)):
         The seed used for random number generation.
     """
 
+    # Order in which parameters have to be initialized.
+    # Missing parameters will be initialized last in an undefined order.
+    # This is needed for pickling and copying of Nengo objects when the
+    # parameter initialization order matters.
+    _param_init_order = []
+
     label = StringParam('label', default=None, optional=True)
     seed = IntParam('seed', default=None, optional=True)
 
     def __init__(self, label, seed):
+        super(NengoObject, self).__init__()
         self.label = label
         self.seed = seed
 
     def __getstate__(self):
-        raise NotImplementedError("Nengo objects do not support pickling")
+        state = self.__dict__.copy()
+        del state['_initialized']
+
+        for attr in self.params:
+            param = getattr(type(self), attr)
+            if self in param:
+                state[attr] = getattr(self, attr)
+
+        return state
 
     def __setstate__(self, state):
-        raise NotImplementedError("Nengo objects do not support pickling")
+        for attr in self._param_init_order:
+            setattr(self, attr, state.pop(attr))
+
+        for attr in self.params:
+            if attr in state:
+                setattr(self, attr, state.pop(attr))
+
+        for k, v in iteritems(state):
+            setattr(self, k, v)
+
+        self._initialized = True
+        if len(nengo.Network.context) > 0:
+            warnings.warn(NotAddedToNetworkWarning(self))
 
     def __setattr__(self, name, val):
         if hasattr(self, '_initialized') and not hasattr(self, name):
@@ -80,21 +114,26 @@ class NengoObject(with_metaclass(NetworkMember, SupportDefaultsMixin)):
 
     def _str(self, include_id):
         return "<%s%s%s>" % (
-            self.__class__.__name__,
+            type(self).__name__,
             "" if not hasattr(self, 'label') else
             " (unlabeled)" if self.label is None else
             ' "%s"' % self.label,
             " at 0x%x" % id(self) if include_id else "")
 
-    @classmethod
-    def param_list(cls):
-        """Returns a list of parameter names that can be set."""
-        return (attr for attr in dir(cls) if is_param(getattr(cls, attr)))
-
     @property
     def params(self):
         """Returns a list of parameter names that can be set."""
-        return self.param_list()
+        return list(iter_params(self))
+
+    def copy(self, add_to_container=True):
+        with warnings.catch_warnings():
+            # We warn when copying since we can't change add_to_container.
+            # However, we deal with it here, so we ignore the warning.
+            warnings.simplefilter('ignore', category=NotAddedToNetworkWarning)
+            c = copy(self)
+        if add_to_container:
+            nengo.Network.add(c)
+        return c
 
 
 class ObjView(object):
@@ -109,34 +148,32 @@ class ObjView(object):
 
     def __init__(self, obj, key=slice(None)):
         self.obj = obj
+
+        # Node.size_in != size_out, so one of these can be invalid
+        try:
+            self.size_in = np.arange(self.obj.size_in)[key].size
+        except IndexError:
+            self.size_in = None
+        try:
+            self.size_out = np.arange(self.obj.size_out)[key].size
+        except IndexError:
+            self.size_out = None
+        if self.size_in is None and self.size_out is None:
+            raise IndexError("Invalid slice '%s' of %s" % (key, self.obj))
+
         if is_integer(key):
             # single slices of the form [i] should be cast into
             # slice objects for convenience
             if key == -1:
                 # special case because slice(-1, 0) gives the empty list
-                key = slice(key, None)
+                self.slice = slice(key, None)
             else:
-                key = slice(key, key+1)
-        self.slice = key
+                self.slice = slice(key, key+1)
+        else:
+            self.slice = key
 
-        # Node.size_in != size_out, so one of these can be invalid
-        try:
-            self.size_in = np.arange(self.obj.size_in)[self.slice].size
-        except IndexError:
-            self.size_in = None
-        try:
-            self.size_out = np.arange(self.obj.size_out)[self.slice].size
-        except IndexError:
-            self.size_out = None
-        if self.size_in is None and self.size_out is None:
-            raise ValidationError("Invalid slice '%s' of %s"
-                                  % (self.slice, self.obj), attr='key')
-
-    def __getstate__(self):
-        raise NotImplementedError("Nengo objects do not support pickling")
-
-    def __setstate__(self, state):
-        raise NotImplementedError("Nengo objects do not support pickling")
+    def copy(self):
+        return copy(self)
 
     def __len__(self):
         return self.size_out
@@ -169,11 +206,14 @@ class NengoObjectParam(Parameter):
         super(NengoObjectParam, self).__init__(
             name, default, optional, readonly)
 
-    def validate(self, instance, nengo_obj):
-        from nengo.ensemble import Neurons
-        from nengo.connection import LearningRule
-        if not isinstance(nengo_obj, (
-                NengoObject, ObjView, Neurons, LearningRule)):
+    def coerce(self, instance, nengo_obj):
+        nengo_objects = (
+            NengoObject,
+            ObjView,
+            nengo.ensemble.Neurons,
+            nengo.connection.LearningRule
+        )
+        if not isinstance(nengo_obj, nengo_objects):
             raise ValidationError("'%s' is not a Nengo object" % nengo_obj,
                                   attr=self.name, obj=instance)
         if self.nonzero_size_in and nengo_obj.size_in < 1:
@@ -182,7 +222,7 @@ class NengoObjectParam(Parameter):
         if self.nonzero_size_out and nengo_obj.size_out < 1:
             raise ValidationError("'%s' must have size_out > 0." % nengo_obj,
                                   attr=self.name, obj=instance)
-        super(NengoObjectParam, self).validate(instance, nengo_obj)
+        return super(NengoObjectParam, self).coerce(instance, nengo_obj)
 
 
 class Process(FrozenObject):
@@ -371,10 +411,6 @@ class Process(FrozenObject):
 class ProcessParam(Parameter):
     """Must be a Process."""
 
-    def validate(self, instance, process):
-        super(ProcessParam, self).validate(instance, process)
-        if process is not None and not isinstance(process, Process):
-            raise ValidationError(
-                "Must be Process (got type %r)" % process.__class__.__name__,
-                attr=self.name, obj=instance)
-        return process
+    def coerce(self, instance, process):
+        self.check_type(instance, process, Process)
+        return super(ProcessParam, self).coerce(instance, process)

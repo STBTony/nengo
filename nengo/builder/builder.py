@@ -63,10 +63,11 @@ class Model(object):
         or for the network builder to determine if it is the top-level network.
     """
 
-    def __init__(self, dt=0.001, label=None, decoder_cache=NoDecoderCache()):
+    def __init__(self, dt=0.001, label=None, decoder_cache=None, builder=None):
         self.dt = dt
         self.label = label
-        self.decoder_cache = decoder_cache
+        self.decoder_cache = (NoDecoderCache() if decoder_cache is None
+                              else decoder_cache)
 
         # Will be filled in by the network builder
         self.toplevel = None
@@ -86,6 +87,9 @@ class Model(object):
         self.step = Signal(np.array(0, dtype=np.int64), name='step')
         self.time = Signal(np.array(0, dtype=np.float64), name='time')
         self.add_op(TimeUpdate(self.step, self.time))
+
+        self.builder = Builder() if builder is None else builder
+        self.build_callback = None
 
     def __str__(self):
         return "Model: %s" % self.label
@@ -116,7 +120,10 @@ class Model(object):
         obj : object
             The object to build into this model.
         """
-        return Builder.build(self, obj, *args, **kwargs)
+        built = self.builder.build(self, obj, *args, **kwargs)
+        if self.build_callback is not None:
+            self.build_callback(obj)
+        return built
 
     def has_built(self, obj):
         """Returns true if the object has already been built in this model.
@@ -201,12 +208,12 @@ class Builder(object):
             warnings.warn("Object %s has already been built." % obj)
             return None
 
-        for obj_cls in obj.__class__.__mro__:
+        for obj_cls in type(obj).__mro__:
             if obj_cls in cls.builders:
                 break
         else:
             raise BuildError(
-                "Cannot build object of type %r" % obj.__class__.__name__)
+                "Cannot build object of type %r" % type(obj).__name__)
 
         return cls.builders[obj_cls](model, obj, *args, **kwargs)
 

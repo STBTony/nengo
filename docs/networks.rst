@@ -20,12 +20,20 @@ The following examples will help you to build your own networks:
    examples/network_design
    examples/network_design_advanced
 
-You may also find the following documentation on the ``config`` system
-useful:
+You may also find the :doc:`config system documentation <config>` useful.
 
-.. toctree::
+.. autosummary::
+   :nosignatures:
 
-   examples/config
+   nengo.networks.EnsembleArray
+   nengo.networks.BasalGanglia
+   nengo.networks.Thalamus
+   nengo.networks.AssociativeMemory
+   nengo.networks.CircularConvolution
+   nengo.networks.Integrator
+   nengo.networks.Oscillator
+   nengo.networks.Product
+   nengo.networks.InputGatedMemory
 
 .. autoclass:: nengo.networks.EnsembleArray
 

@@ -79,7 +79,7 @@ def piecewise(data):
     for time in data:
         if not is_number(time):
             raise ValidationError("Keys must be times (floats or ints), not %r"
-                                  % time.__class__.__name__, attr='data')
+                                  % type(time).__name__, attr='data')
 
         # figure out the length of this item
         if callable(data[time]):
@@ -124,7 +124,7 @@ class HilbertCurve(object):
         Iterations.
     """
     # Implementation based on
-    # http://en.wikipedia.org/w/index.php?title=Hilbert_curve&oldid=633637210
+    # https://en.wikipedia.org/w/index.php?title=Hilbert_curve&oldid=633637210
 
     def __init__(self, n):
         self.n = n

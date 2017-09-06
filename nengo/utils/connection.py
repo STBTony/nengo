@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 
+import warnings
+
 import numpy as np
 
 from . import numpy as npext
@@ -38,6 +40,9 @@ def target_function(eval_points, targets):
     nengo.Connection(ens1, ens2,
                      **target_function(eval_points, targets)
     """
+    warnings.warn("'targets' can be passed directly to the connection through "
+                  "the 'function' argument. That approach is faster, so this "
+                  "function is deprecated and will be removed in the future.")
 
     eval_points = npext.array(eval_points, dtype=np.float64, min_dims=2)
     targets = npext.array(targets, dtype=np.float64, min_dims=2)
@@ -96,8 +101,28 @@ def eval_point_decoding(conn, sim, eval_points=None):
     else:
         eval_points = np.asarray(eval_points)
 
+    ens = conn.pre_obj
     weights = sim.data[conn].weights
-    activities = get_activities(sim.model, conn.pre_obj, eval_points)
+    activities = get_activities(sim.data[ens], ens, eval_points)
     decoded = np.dot(activities, weights.T)
-    targets = get_targets(sim.model, conn, eval_points)
+    targets = get_targets(conn, eval_points)
     return eval_points, targets, decoded
+
+
+def function_name(func):
+    """Returns the name of a function.
+
+    Unlike accesing ``func.__name__``, this function is robust to the
+    different types of objects that can be considered a function in Nengo.
+
+    Parameters
+    ----------
+    func : callable or array_like
+        Object used as function argument.
+
+    Returns
+    -------
+    str
+        Name of function object.
+    """
+    return getattr(func, "__name__", func.__class__.__name__)

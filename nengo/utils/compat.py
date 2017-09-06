@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 
 import collections
+import os
+import subprocess
 import sys
 
 import numpy as np
@@ -12,6 +14,7 @@ PY2 = sys.version_info[0] == 2
 if PY2:
     import cPickle as pickle
     import ConfigParser as configparser
+    from itertools import izip_longest as zip_longest
     from StringIO import StringIO
     string_types = (str, unicode)
     int_types = (int, long)
@@ -29,6 +32,28 @@ if PY2:
             return s.encode('utf-8')
         assert isinstance(s, bytes)
         return s
+
+    if sys.platform.startswith('win'):
+
+        def replace(src, dst):
+            # The Windows implementation of replace calls out to the shell
+            # to do 'move /Y src dst' due to an odd bug in 32-bit versions
+            # of Python 2.7. See https://github.com/nengo/nengo/pull/1107
+            # for the bizarre details.
+            with open(os.devnull, 'w') as devnull:
+                subprocess.check_call(["move", "/Y", src, dst],
+                                      shell=True,
+                                      stdout=devnull,
+                                      stderr=devnull)
+
+    else:
+
+        def replace(src, dst):
+            try:
+                os.rename(src, dst)
+            except OSError:
+                os.remove(dst)
+                os.rename(src, dst)
 
     class TextIO(StringIO):
         def write(self, data):
@@ -53,6 +78,8 @@ else:
     import pickle
     import configparser
     from io import StringIO
+    from itertools import zip_longest
+    from os import replace
     TextIO = StringIO
     string_types = (str,)
     int_types = (int,)
@@ -71,6 +98,11 @@ else:
             s = s.encode('utf-8')
         assert isinstance(s, bytes)
         return s
+
+assert pickle
+assert configparser
+assert replace
+assert zip_longest
 
 
 def is_integer(obj):
@@ -100,7 +132,10 @@ def is_array(obj):
 
 
 def is_array_like(obj):
-    return is_array(obj) or is_iterable(obj) or is_number(obj)
+    # While it's possible that there are some iterables other than list/tuple
+    # that can be made into arrays, it's very likely that those arrays
+    # will have dtype=object, which is likely to cause unexpected issues.
+    return is_array(obj) or is_number(obj) or isinstance(obj, (list, tuple))
 
 
 def with_metaclass(meta, *bases):

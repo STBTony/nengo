@@ -84,11 +84,9 @@ class Solver(with_metaclass(DocstringInheritor, FrozenObject)):
 
 
 class SolverParam(Parameter):
-    def validate(self, instance, solver):
-        if solver is not None and not isinstance(solver, Solver):
-            raise ValidationError("'%s' is not a solver" % solver,
-                                  attr=self.name, obj=instance)
-        super(SolverParam, self).validate(instance, solver)
+    def coerce(self, instance, solver):
+        self.check_type(instance, solver, Solver)
+        return super(SolverParam, self).coerce(instance, solver)
 
 
 class Lstsq(Solver):
@@ -388,7 +386,7 @@ class Nnls(Solver):
     def __init__(self, weights=False):
         """
         .. note:: Requires
-                  `SciPy <http://docs.scipy.org/doc/scipy/reference/>`_.
+                  `SciPy <https://docs.scipy.org/doc/scipy/reference/>`_.
 
         Parameters
         ----------
@@ -437,7 +435,7 @@ class NnlsL2(Nnls):
     def __init__(self, weights=False, reg=0.1):
         """
         .. note:: Requires
-                  `SciPy <http://docs.scipy.org/doc/scipy/reference/>`_.
+                  `SciPy <https://docs.scipy.org/doc/scipy/reference/>`_.
 
         Parameters
         ----------

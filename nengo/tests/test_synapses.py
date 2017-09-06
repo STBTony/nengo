@@ -119,7 +119,8 @@ def test_filt(plt, rng):
     k = 1. / tau * np.exp(-tk / tau)
     x = np.convolve(u, k, mode='full')[:nt]
 
-    y = Lowpass(0.1).filt(u, dt=dt, y0=0)
+    # support lists as input
+    y = Lowpass(0.1).filt(list(u), dt=dt, y0=0)
 
     plt.plot(t, x)
     plt.plot(t, y, '--')
@@ -163,6 +164,15 @@ def test_lti_lowpass(rng, plt):
     plt.plot(t, y[:, 0], label="LTI")
     plt.legend(loc="best")
 
+    assert np.allclose(x, y)
+
+
+def test_linearfilter_combine(rng):
+    nt = 3000
+    tau0, tau1 = 0.01, 0.02
+    u = rng.normal(size=(nt, 10))
+    x = LinearFilter([1], [tau0*tau1, tau0+tau1, 1]).filt(u, y0=0)
+    y = Lowpass(tau0).combine(Lowpass(tau1)).filt(u, y0=0)
     assert np.allclose(x, y)
 
 

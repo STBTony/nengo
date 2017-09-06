@@ -1,7 +1,7 @@
 import numpy as np
 
 from nengo.builder import Builder, Signal
-from nengo.builder.operator import Reset
+from nengo.builder.operator import Copy, Reset
 from nengo.connection import Connection, LearningRule
 from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError
@@ -45,12 +45,16 @@ def signal_probe(model, key, probe):
     if probe.synapse is None:
         model.sig[probe]['in'] = sig
     else:
-        model.sig[probe]['in'] = model.build(probe.synapse, sig)
+        model.sig[probe]['in'] = Signal(np.zeros(sig.shape), name=str(probe))
+        model.sig[probe]['filtered'] = model.build(probe.synapse, sig)
+        model.add_op(Copy(model.sig[probe]['filtered'],
+                          model.sig[probe]['in']))
 
 
 probemap = {
     Ensemble: {'decoded_output': None,
-               'input': 'in'},
+               'input': 'in',
+               'scaled_encoders': 'encoders'},
     Neurons: {'output': None,
               'spikes': None,
               'rates': None,
@@ -98,7 +102,7 @@ def build_probe(model, probe):
             break
     else:
         raise BuildError(
-            "Type %r is not probeable" % probe.obj.__class__.__name__)
+            "Type %r is not probeable" % type(probe.obj).__name__)
 
     key = probeables[probe.attr] if probe.attr in probeables else probe.attr
     if key is None:

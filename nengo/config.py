@@ -8,7 +8,7 @@ error checking on those parameters.
 
 A good writeup on descriptors (which has an example similar to Parameter)
 can be found at
-http://nbviewer.ipython.org/urls/gist.github.com/ChrisBeaumont/5758381/raw/descriptor_writeup.ipynb  # noqa
+https://nbviewer.ipython.org/urls/gist.github.com/ChrisBeaumont/5758381/raw/descriptor_writeup.ipynb  # noqa
 
 """
 
@@ -16,23 +16,29 @@ import inspect
 import sys
 
 from nengo.exceptions import ConfigError, ValidationError
-from nengo.params import Default, is_param
+from nengo.params import Default, is_param, iter_params
 from nengo.rc import rc
 from nengo.utils.compat import itervalues, reraise
 from nengo.utils.threading import ThreadLocalStack
 
 
 class ClassParams(object):
-    """A class to store extra parameters and defaults on Nengo classes.
+    """A class to store extra parameters and defaults on configured classes.
 
-    This is used by the ``Config`` object to add new ``Parameter``s
-    to existing Nengo objects. It should not be instantiated manually.
+    This is used by `.Config` to associate defaults and new `.Parameter`
+    instances with existing objects. It should not be instantiated outside of
+    `.Config.configures`.
+
+    Parameters
+    ----------
+    configures : class
+        The class with which to associate new defaults and parameters.
     """
 
     def __init__(self, configures):
         assert inspect.isclass(configures)
         self._configures = configures
-        self._extraparams = {}
+        self._extra_params = {}
         self._default_params = tuple(
             attr for attr in dir(self._configures)
             if is_param(getattr(self._configures, attr)))
@@ -47,6 +53,10 @@ class ClassParams(object):
             self.get_param(key).del_default(self)
 
     def __getattr__(self, key):
+        if key.startswith("_"):
+            # If we get here, then that attribute hasn't been set
+            raise AttributeError("%r object has no attribute %r"
+                                 % (type(self).__name__, key))
         return self.get_param(key).get_default(self)
 
     def __setattr__(self, key, value):
@@ -61,6 +71,29 @@ class ClassParams(object):
             if not param.configurable:
                 raise ConfigError("Parameter '%s' is not configurable" % key)
             param.set_default(self, value)
+
+    def __getstate__(self):
+        state = {'_configures': self._configures,
+                 '_default_params': self._default_params,
+                 '_extra_params': self._extra_params}
+
+        # Store all of the things we set in the params
+        for attr in self.params:
+            param = self.get_param(attr)
+            if self in param:
+                state[attr] = param.get_default(self)
+
+        return state
+
+    def __setstate__(self, state):
+        self._configures = state['_configures']
+        self._default_params = state['_default_params']
+        self._extra_params = state['_extra_params']
+
+        # Restore all of the things we set in the params
+        for attr in self.params:
+            if attr in state:
+                self.get_param(attr).set_default(self, state[attr])
 
     def __str__(self):
         name = self._configures.__name__
@@ -81,7 +114,7 @@ class ClassParams(object):
         for attr in filled_defaults + sorted(self.extra_params):
             params.append("%s: %s" % (attr, getattr(self, attr)))
 
-        return "<%s[%s]{%s}>" % (self.__class__.__name__,
+        return "<%s[%s]{%s}>" % (type(self).__name__,
                                  self._configures.__name__, ", ".join(params))
 
     @property
@@ -90,15 +123,15 @@ class ClassParams(object):
 
     @property
     def extra_params(self):
-        return tuple(self._extraparams)
+        return tuple(self._extra_params)
 
     @property
     def params(self):
         return self.default_params + self.extra_params
 
     def get_param(self, key):
-        if key in self._extraparams:
-            return self._extraparams[key]
+        if key in self._extra_params:
+            return self._extra_params[key]
 
         return getattr(self._configures, key)
 
@@ -109,7 +142,7 @@ class ClassParams(object):
             raise ConfigError("'%s' is already a parameter in %s. "
                               "Please choose a different name."
                               % (key, self._configures.__name__))
-        self._extraparams[key] = value
+        self._extra_params[key] = value
 
     def update(self, d):
         """Sets a number of parameters at once given a dictionary."""
@@ -118,11 +151,11 @@ class ClassParams(object):
 
 
 class InstanceParams(object):
-    """A class to store extra parameters on Nengo objects.
+    """A class to store parameter value on configured objects.
 
-    This restricts the amount of configurability for instances.
-    All you can do is get and set parameter values; getting and setting
-    the parameters themselves can only be done on the class.
+    In contrast to `.ClassParams`, the only thing that can be done with
+    ``InstanceParams`` is get and set parameter values. Use the corresponding
+    `.ClassParams` to set defaults and create new parameters.
     """
 
     def __init__(self, configures, clsparams):
@@ -141,7 +174,7 @@ class InstanceParams(object):
             raise ConfigError(
                 "Cannot configure the built-in parameter '%s' on an instance "
                 "of '%s'. Please delete the attribute directly on the object."
-                % (key, self._configures.__class__.__name__))
+                % (key, type(self._configures).__name__))
         else:
             self._clsparams.get_param(key).__delete__(self)
 
@@ -150,10 +183,10 @@ class InstanceParams(object):
             raise ConfigError(
                 "Cannot configure the built-in parameter '%s' on an instance "
                 "of '%s'. Please get the attribute directly from the object."
-                % (key, self._configures.__class__.__name__))
+                % (key, type(self._configures).__name__))
         param = self._clsparams.get_param(key)
         if self in param:
-            return param.__get__(self, self.__class__)
+            return param.__get__(self, type(self))
         return getattr(self._clsparams, key)
 
     def __setattr__(self, key, value):
@@ -165,9 +198,24 @@ class InstanceParams(object):
             raise ConfigError(
                 "Cannot configure the built-in parameter '%s' on an instance "
                 "of '%s'. Please set the attribute directly on the object."
-                % (key, self._configures.__class__.__name__))
+                % (key, type(self._configures).__name__))
         else:
             self._clsparams.get_param(key).__set__(self, value)
+
+    def __getstate__(self):
+        state = {}
+
+        for key in iter_params(self._configures):
+            param = self._clsparams.get_param(key)
+            if self in param:
+                state[key] = param.__get__(self, type(self))
+
+        state.update(self.__dict__)
+        return state
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            setattr(self, k, v)
 
     def __repr__(self):
         params = []
@@ -176,7 +224,7 @@ class InstanceParams(object):
         for attr in filled_params:
             params.append("%s: %s" % (attr, getattr(self, attr)))
 
-        return "<%s[%s]{%s}>" % (self.__class__.__name__,
+        return "<%s[%s]{%s}>" % (type(self).__name__,
                                  self._configures, ", ".join(params))
 
     def __str__(self):
@@ -189,42 +237,73 @@ class InstanceParams(object):
     def get_param(self, key):
         raise ConfigError("Cannot get parameters on an instance; use "
                           "'config[%s].get_param' instead."
-                          % self._configures.__class__.__name__)
+                          % type(self._configures).__name__)
 
     def set_param(self, key, value):
         raise ConfigError("Cannot set parameters on an instance; use "
                           "'config[%s].set_param' instead."
-                          % self._configures.__class__.__name__)
+                          % type(self._configures).__name__)
 
 
 class Config(object):
-    """Configures network-level behavior and backend specific parameters.
+    """Configures network-level defaults and additional parameters.
 
-    Every ``Network`` contains an associated ``Config`` object which can
-    be manipulated to change overall network behavior, and to store
-    backend specific parameters. Subnetworks inherit the ``Config`` of
-    their parent, but can be manipulated independently.
-    The top-level network inherits ``nengo.toplevel_config``.
+    Every `.Network` contains an associated ``Config`` object which can
+    be manipulated to change network-specific defaults, and to store
+    additional parameters (for example, those specific to a backend).
+
+    A ``Config`` object can configure objects of any class, but it has to be
+    told the classes to configure first. This is either done on instantiation
+    of the ``Config`` object or by calling the `.configures`  method.
+    This sets up a mapping between configured class and a `.ClassParams`
+    object that sets the default values for that class. Attempting to
+    configure an instance of a configure class will create a mapping from
+    that instance to an `.InstanceParams` object to configure additional
+    parameters for that instance.
+
+    Parameters
+    ----------
+    *configures
+        The classes that this ``Config`` instance will configure.
 
     Attributes
     ----------
     params : dict
-        Maps configured classes and instances to their ``ClassParams``
-        or ``InstanceParams`` object.
+        Maps configured classes and instances to their `.ClassParams`
+        or `.InstanceParams` object.
 
-    Example
-    -------
-    >>> class A(object): pass
-    >>> inst = A()
-    >>> config = Config(A)
-    >>> config[A].set_param('amount', Parameter(default=1))
-    >>> print(config[inst].amount)
-    1
-    >>> config[inst].amount = 3
-    >>> print(config[inst].amount)
-    3
-    >>> print(config[A].amount)
-    1
+    Examples
+    --------
+
+    To configure defaults on a network::
+
+        net = nengo.Network()
+        net.config[nengo.Ensemble].radius = 1.5
+        with net:
+            ens = nengo.Ensemble(10, 1)
+        ens.radius == 1.5  # True
+
+    To add a new parameter to a Nengo object::
+
+        net.config[nengo.Ensemble].set_param(
+            'location', nengo.params.Parameter('location'))
+        net.config[ens].location = 'cortex'
+
+    To group together a set of prameters::
+
+        gaba = nengo.Config(nengo.Connection)
+        gaba[nengo.Connection].synapse = nengo.Lowpass(0.008)
+        with net, gaba:
+            conn = nengo.Connection(ens, ens)
+        conn.synapse == nengo.Lowpass(0.008)  # True
+
+    To configure a new type of object::
+
+        class SynapseInfo(object):
+            label = nengo.params.StringParam('label')
+        gaba.configures(SynapseInfo)
+        gaba[SynapseInfo].label = "GABA"  # Set default label
+
     """
 
     context = ThreadLocalStack(maxsize=100)  # static stack of Config objects
@@ -250,6 +329,9 @@ class Config(object):
                               "current context to be '%s' but instead got "
                               "'%s'." % (self, config))
 
+    def __contains__(self, key):
+        raise TypeError("Cannot check if %r is in a config." % (key,))
+
     def __getitem__(self, key):
         # If we have the exact thing, we'll just return it
         if key in self.params:
@@ -267,7 +349,7 @@ class Config(object):
                 "Call 'configures(%(name)s)' first." % {'name': key.__name__})
 
         # For new instances, if we configure a class in the mro we're good
-        for cls in key.__class__.__mro__:
+        for cls in type(key).__mro__:
             if cls in self.params:
                 clsparams = self.params[cls]
                 instparams = InstanceParams(key, clsparams)
@@ -277,11 +359,11 @@ class Config(object):
         # If we don't configure the class, KeyError
         raise ConfigError(
             "Type '%(name)s' is not set up for configuration. Call "
-            "configures('%(name)s') first." % {'name': key.__class__.__name__})
+            "configures('%(name)s') first." % {'name': type(key).__name__})
 
     def __repr__(self):
         classes = [key.__name__ for key in self.params if inspect.isclass(key)]
-        return "<%s(%s)>" % (self.__class__.__name__, ', '.join(classes))
+        return "<%s(%s)>" % (type(self).__name__, ', '.join(classes))
 
     def __str__(self):
         return "\n".join(str(v) for v in itervalues(self.params))
@@ -353,13 +435,13 @@ class Config(object):
 
 
 class SupportDefaultsMixin(object):
-    """Mixin to support assigning ``Default`` to parameters.
+    """Mixin to support assigning `.Default` to parameters.
 
-    Implements ``__setattr__`` to do so. If the inheriting class overrides this
-    method, it has to call the mixins `__setattr__`.
+    Implements ``__setattr__`` to do so. If the inheriting class overrides
+    this method, it has to call the mixin's ``__setattr__``.
 
-    This mixin will also simplify the exception if the parameter value is
-    invalid given the `simplified` rc option is set
+    This mixin may simplify the exception depending on the value of the
+    ``simplified`` rc option.
     """
 
     def __setattr__(self, name, val):

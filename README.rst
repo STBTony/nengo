@@ -2,10 +2,6 @@
   :target: https://pypi.python.org/pypi/nengo
   :alt: Latest PyPI version
 
-.. image:: https://img.shields.io/pypi/dm/nengo.svg
-  :target: https://pypi.python.org/pypi/nengo
-  :alt: Number of PyPI downloads
-
 .. image:: https://img.shields.io/travis/nengo/nengo/master.svg
   :target: https://travis-ci.org/nengo/nengo
   :alt: Travis-CI build status
@@ -41,11 +37,11 @@ To install Nengo::
 If you have difficulty installing Nengo or NumPy,
 please read the more detailed
 `Nengo installation instructions
-<https://pythonhosted.org/nengo/getting_started.html#installation>`_ first.
+<https://www.nengo.ai/nengo/getting_started.html#installation>`_ first.
 
 If you'd like to install Nengo from source,
-please read the `development installation instructions
-<https://pythonhosted.org/nengo/dev_introduction.html>`_.
+please read the `developer installation instructions
+<https://www.nengo.ai/nengo/contributing.html#developer-installation>`_.
 
 Nengo is tested to work on Python 2.7 and 3.4+.
 
@@ -53,31 +49,46 @@ Examples
 ========
 
 Here are six of
-`many examples <https://pythonhosted.org/nengo/examples.html>`_
+`many examples <https://www.nengo.ai/nengo/examples.html>`_
 showing how Nengo enables the creation and simulation of
 large-scale neural models in few lines of code.
 
 1. `100 LIF neurons representing a sine wave
-   <https://pythonhosted.org/nengo/examples/many_neurons.html>`_
+   <https://www.nengo.ai/nengo/examples/many_neurons.html>`_
 2. `Computing the square across a neural connection
-   <https://pythonhosted.org/nengo/examples/squaring.html>`_
+   <https://www.nengo.ai/nengo/examples/squaring.html>`_
 3. `Controlled oscillatory dynamics with a recurrent connection
-   <https://pythonhosted.org/nengo/examples/controlled_oscillator.html>`_
+   <https://www.nengo.ai/nengo/examples/controlled_oscillator.html>`_
 4. `Learning a communication channel with the PES rule
-   <https://pythonhosted.org/nengo/examples/learn_communication_channel.html>`_
+   <https://www.nengo.ai/nengo/examples/learn_communication_channel.html>`_
 5. `Simple question answering with the Semantic Pointer Architecture
-   <https://pythonhosted.org/nengo/examples/question.html>`_
+   <https://www.nengo.ai/nengo/examples/question.html>`_
 6. `A summary of the principles underlying all of these examples
-   <https://pythonhosted.org/nengo/examples/nef_summary.html>`_
+   <https://www.nengo.ai/nengo/examples/nef_summary.html>`_
 
 Documentation
 =============
 
 Usage and API documentation can be found at
-`<https://pythonhosted.org/nengo/>`_.
+`<https://www.nengo.ai/nengo/>`_.
+
+To build the documentation yourself, run the following command::
+
+    python setup.py build_sphinx
+
+This requires Pandoc to be installed,
+as well as the packages in ``requirements-test.txt`` and ``requirements-docs.txt``.
+For more details, `see the Developer Guide
+<https://www.nengo.ai/nengo/contributing.html#how-to-build-the-documentation>`_.
 
 Development
 ===========
 
 Information for current or prospective developers can be found
-at `<https://pythonhosted.org/nengo/dev_guide.html>`_.
+at `<https://www.nengo.ai/developers.html>`_.
+
+Getting Help
+============
+
+Questions relating to Nengo, whether it's use or it's development, should be
+asked on the Nengo forum at `<https://forum.nengo.ai>`_.

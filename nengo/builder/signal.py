@@ -30,6 +30,13 @@ class Signal(object):
     readonly : bool, optional (Default: False)
         Whether this signal and its related live data should be marked as
         readonly. Writing to these arrays will raise an exception.
+    offset : int, optional (Default: 0)
+        For a signal view this gives the offset of the view from the base
+        ``initial_value`` in bytes. This might differ from the offset
+        of the NumPy array view provided as ``initial_value`` if the base
+        is a view already (in which case the signal base offset will be 0
+        because it starts where the view starts. That NumPy view can have
+        an offset of itself).
     """
 
     # Set assert_named_signals True to raise an Exception
@@ -39,25 +46,33 @@ class Signal(object):
     # up in a model.
     assert_named_signals = False
 
-    def __init__(self, initial_value, name=None, base=None, readonly=False):
-        self._initial_value = np.asarray(initial_value).view()
+    def __init__(self, initial_value,
+                 name=None, base=None, readonly=False, offset=0):
+        if self.assert_named_signals:
+            assert name
+        self._name = name
+
+        if not np.isscalar(initial_value) and base is None:
+            self._initial_value = np.ascontiguousarray(initial_value).view()
+        else:
+            self._initial_value = np.asarray(initial_value).view()
         self._initial_value.setflags(write=False)
 
         if base is not None:
             assert isinstance(base, Signal) and not base.is_view
             # make sure initial_value uses the same data as base.initial_value
-            assert (npext.array_base(initial_value) is
-                    npext.array_base(base.initial_value))
+            assert initial_value.base is base.initial_value.base
         self._base = base
-
-        if self.assert_named_signals:
-            assert name
-        self._name = name
+        self._offset = offset
 
         self._readonly = bool(readonly)
 
     def __getitem__(self, item):
         """Index or slice into array"""
+        if item is Ellipsis or (
+                isinstance(item, slice) and item == slice(None)):
+            return self
+
         if not isinstance(item, tuple):
             item = (item,)
 
@@ -68,9 +83,11 @@ class Signal(object):
             # turn one index into slice to get a view from numpy
             item = item[:-1] + (slice(item[-1], item[-1]+1),)
 
-        return Signal(self._initial_value[item],
-                      name="%s[%s]" % (self.name, item),
-                      base=self.base)
+        view = self._initial_value[item]
+        offset = (npext.array_offset(view)
+                  - npext.array_offset(self._initial_value))
+        return Signal(view, name="%s[%s]" % (self.name, item),
+                      base=self.base, offset=offset)
 
     def __repr__(self):
         return "Signal(%s, shape=%s)" % (self._name, self.shape)
@@ -132,14 +149,28 @@ class Signal(object):
         self._name = name
 
     @property
+    def nbytes(self):
+        """(int) Number of bytes consumed by the signal."""
+        # Equivalent to self.itemsize * self.size
+        return self.initial_value.nbytes
+
+    @property
     def ndim(self):
         """(int) Number of array dimensions."""
         return self.initial_value.ndim
 
     @property
     def offset(self):
-        """(int) Offset of data from base in bytes."""
-        return npext.array_offset(self.initial_value)
+        """(int) Offset of data from base in bytes.
+
+        For a signal view this gives the offset of the view from the base
+        ``initial_value`` in bytes. This might differ from the offset
+        of the NumPy array view provided as ``initial_value`` if the base
+        is a view already (in which case the signal base offset will be 0
+        because it starts where the view starts. That NumPy view can have
+        an offset of itself).
+        """
+        return self._offset
 
     @property
     def readonly(self):
@@ -250,9 +281,10 @@ class SignalDict(dict):
                 self.init(signal.base)
 
             # get a view onto the base data
-            offset = npext.array_offset(x)
-            view = np.ndarray(shape=x.shape, strides=x.strides, offset=offset,
-                              dtype=x.dtype, buffer=self[signal.base].data)
+            view = np.ndarray(
+                shape=x.shape, strides=x.strides, offset=signal.offset,
+                dtype=x.dtype, buffer=self[signal.base].data)
+            assert np.array_equal(view, x)
             view.setflags(write=not signal.readonly)
             dict.__setitem__(self, signal, view)
         else:

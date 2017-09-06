@@ -50,15 +50,13 @@ Operators
 
 .. autoclass:: nengo.builder.operator.Copy
 
-.. autoclass:: nengo.builder.operator.SlicedCopy
-
 .. autoclass:: nengo.builder.operator.ElementwiseInc
 
 .. autoclass:: nengo.builder.operator.DotInc
 
-.. autoclass:: nengo.builder.operator.TimeUpdate
+.. autoclass:: nengo.builder.operator.BsrDotInc
 
-.. autoclass:: nengo.builder.operator.PreserveValue
+.. autoclass:: nengo.builder.operator.TimeUpdate
 
 .. autoclass:: nengo.builder.operator.SimPyFunc
 
@@ -116,3 +114,21 @@ Build functions
 .. autofunction:: nengo.builder.processes.build_process
 
 .. autofunction:: nengo.builder.processes.build_synapse
+
+Decoder cache
+-------------
+
+.. autoclass:: nengo.cache.NoDecoderCache
+
+.. autoclass:: nengo.cache.DecoderCache
+
+.. autoclass:: nengo.cache.Fingerprint
+
+.. autoclass:: nengo.cache.CacheIndex
+
+.. autoclass:: nengo.cache.WriteableCacheIndex
+
+Optimizer
+---------
+
+.. autofunction:: nengo.builder.optimizer.optimize
