@@ -4,6 +4,10 @@ import pytest
 from nengo.exceptions import ValidationError
 from nengo.utils.functions import piecewise
 
+"""
+note:: piecewise() function is deprecated. Use Piecewise process instead.
+"""
+
 
 def test_basic():
     f = piecewise({0.5: 1, 1.0: 0})

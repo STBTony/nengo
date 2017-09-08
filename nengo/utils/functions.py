@@ -3,12 +3,17 @@ from __future__ import absolute_import
 from collections import OrderedDict
 
 import numpy as np
+import warnings
 
 from nengo.exceptions import ValidationError
 from nengo.utils.compat import is_number, iteritems
 
 
+
 def piecewise(data):
+    warnings.warn("piecewise() function is deprecated. Use Piecewise process instead.",
+                      DeprecationWarning)
+
     """Create a piecewise constant function from a dictionary.
 
     Given an input of data={0: 0, 0.5: 1, 0.75: -1, 1: 0} this will generate a

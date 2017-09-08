@@ -338,78 +338,110 @@ def test_present_input(Simulator, rng):
 
 class TestPiecewise(object):
 
+    dt = 0.001
+
+    def run_sim(self, data, interpolation, Simulator):
+        tp, yp = zip(*data.items())
+        process = nengo.processes.Piecewise(tp, yp, interpolation)
+
+        with nengo.Network() as model:
+            u = nengo.Node(process, size_out=process.default_size_out)
+            up = nengo.Probe(u)
+
+        with Simulator(model, dt=self.dt) as sim:
+            sim.run(1.5)
+
+        return sim.data[up]
+
+    def test_basic(self, Simulator):
+        f = self.run_sim({0.5: 1, 1.0: 0}, 'zero', Simulator)
+        assert np.allclose(f[0], [0])   # t = 0.001
+        assert np.allclose(f[249], [0]) # t = 0.25
+        assert np.allclose(f[498], [0]) # t = 0.499
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[749], [1]) # t = 0.75
+        assert np.allclose(f[999], [0]) # t = 1.0
+        assert np.allclose(f[1499], [0]) # t = 1.5
+
+
+    def test_lists(self, Simulator):
+        f = self.run_sim({0.5: [1, 0], 1.0: [0, 1]}, 'zero', Simulator)
+        assert np.allclose(f[0], [0, 0])   # t = 0.001
+        assert np.allclose(f[249], [0, 0]) # t = 0.25
+        assert np.allclose(f[498], [0, 0]) # t = 0.499
+        assert np.allclose(f[499], [1, 0]) # t = 0.5
+        assert np.allclose(f[749], [1, 0]) # t = 0.75
+        assert np.allclose(f[999], [0, 1]) # t = 1.0
+        assert np.allclose(f[1499], [0, 1]) # t = 1.5
+
+
+
     def get_step(self, data):
         tp, yp = zip(*data.items())
-        print(yp)
         process = nengo.processes.Piecewise(tp, yp)
         return process.make_step(shape_in=(process.default_size_in,),
                                  shape_out=(process.default_size_out,),
                                  dt=0.001, rng=None)
 
-    def test_basic(self):
+
+    def test_default_zero(self):
         f = self.get_step({0.5: 1, 1.0: 0})
         assert np.allclose(f(-10), [0])
         assert np.allclose(f(0), [0])
-        assert np.allclose(f(0.25), [0])
-        assert np.allclose(f(0.5), [1])
-        assert np.allclose(f(0.75), [1])
-        assert np.allclose(f(1.0), [0])
-        assert np.allclose(f(1.5), [0])
-        assert np.allclose(f(100), [0])
-
-
-    def test_lists(self):
-        f = self.get_step({0.5: [1, 0], 1.0: [0, 1]})
-        assert np.allclose(f(-10), [0, 0])
-        assert np.allclose(f(0), [0, 0])
-        assert np.allclose(f(0.25), [0, 0])
-        assert np.allclose(f(0.5), [1, 0])
-        assert np.allclose(f(0.75), [1, 0])
-        assert np.allclose(f(1.0), [0, 1])
-        assert np.allclose(f(1.5), [0, 1])
-        assert np.allclose(f(100), [0, 1])
 
 
     def test_invalid_key(self):
+        data = {0.5: 1, 1: 0, 'a': 0.2}
+        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            f = self.get_step({0.5: 1, 1: 0, 'a': 0.2})
-            assert f
+            process = nengo.processes.Piecewise(tp, yp)
+            assert process
 
 
     def test_invalid_length(self):
+        data = {0.5: [1, 0], 1.0: [1, 0, 0]}
+        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            f = self.get_step({0.5: [1, 0], 1.0: [1, 0, 0]})
-            assert f
+            process = nengo.processes.Piecewise(tp, yp)
+            assert process
 
 
-    def test_invalid_function_length(self):
+    def test_invalid_interpolation_type(self):
+        data = {0.5: 1, 1.0: 0}
+        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            f = self.get_step({0.5: 0, 1.0: lambda t: [t, t ** 2]})
-            assert f
+            process = nengo.processes.Piecewise(tp, yp, 'not-interpolation')
+            assert process
+
+    def test_invalid_interpolation_dimention(self):
+        data = {0.5: [1, 0], 1.0: [0, 1]}
+        tp, yp = zip(*data.items())
+        with pytest.raises(ValidationError):
+            process = nengo.processes.Piecewise(tp, yp, 'cubic')
+            assert process
+
+    def test_interpolation(self, Simulator):
+        f = self.run_sim({0.5: 1, 1.0: 0}, 'linear', Simulator)
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[999], [0]) # t = 1.0
+
+        f = self.run_sim({0.5: 1, 1.0: 0}, 'nearest', Simulator)
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[999], [0]) # t = 1.0
+
+        f = self.run_sim({0.5: 1, 1.0: 0}, 'slinear', Simulator)
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[999], [0]) # t = 1.0
+
+        f = self.run_sim({0.001: 0, 0.5: 1, 1.0: 0}, 'quadratic', Simulator)
+        assert np.allclose(f[0], [0]) # t = 0.001
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[999], [0]) # t = 1.0
+
+        f = self.run_sim({0.001: 0, 0.5: 1, 0.75: 0.5, 1.0: 0}, 'cubic', Simulator)
+        assert np.allclose(f[0], [0]) # t = 0.001
+        assert np.allclose(f[499], [1]) # t = 0.5
+        assert np.allclose(f[749], [0.5]) # t = 0.75
+        assert np.allclose(f[999], [0]) # t = 1.0
 
 
-    def test_function(self):
-        f = self.get_step({0: np.sin, 0.5: np.cos})
-        assert np.allclose(f(0), [np.sin(0)])
-        assert np.allclose(f(0.25), [np.sin(0.25)])
-        assert np.allclose(f(0.4999), [np.sin(0.4999)])
-        assert np.allclose(f(0.5), [np.cos(0.5)])
-        assert np.allclose(f(0.75), [np.cos(0.75)])
-        assert np.allclose(f(1.0), [np.cos(1.0)])
-
-
-    def test_function_list(self):
-
-        def func1(t):
-            return t, t**2, t**3
-
-        def func2(t):
-            return t**4, t**5, t**6
-
-        f = self.get_step({0: func1, 0.5: func2})
-        assert np.allclose(f(0), func1(0))
-        assert np.allclose(f(0.25), func1(0.25))
-        assert np.allclose(f(0.4999), func1(0.4999))
-        assert np.allclose(f(0.5), func2(0.5))
-        assert np.allclose(f(0.75), func2(0.75))
-        assert np.allclose(f(1.0), func2(1.0))

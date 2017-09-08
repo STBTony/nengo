@@ -264,6 +264,61 @@ class PresentInput(Process):
 
 class Piecewise(Process):
     """Present a piecewise input with different options for interpolation.
+
+    Given an input of tp = [0, 0.5, 0.75, 1], yp = [[0], [1], [-1], [0]] this will generate a
+    function that returns the values in yp at corresponding time points.
+
+    Elements in tp must be times (floats or ints). The values in yp can be floats for
+    1d or lists for multi-dimensional function. All lists must be of the same length.
+
+    Interpolations on the data points using scipy.interpolation are also supported. The default
+    interpolation is 'zero', which simply creates a piecewise function whose values begin
+    at the specified time points. So the above example would be shortcut for:
+        def function(t):
+            if t < 0.5:
+                return 0
+            elif t < 0.75
+                return 1
+            elif t < 1:
+                return -1
+            else:
+                return 0
+
+    For times before the first specified time, it will default to zero (of
+    the correct length). This means that the above can be simplified to:
+
+        Piecewise([0.5, 0.75, 1], yp = [[1], [-1], [0]])
+
+    Parameters
+    ----------
+    tp : time points of the function where values are specified
+    yp : values of the function at each time points, can be floats of lists
+    interpolation : optional parameter for interpolation. Can use 'linear', 'nearest', 'slinear',
+        'quadratic', 'cubic', 'zero'. The default is 'zero', which just creates a plain piecewise function whose
+        values begin at corresponding time points
+
+    Returns
+    -------
+    function:
+        Either a piecewise or interpolated function that takes a variable t and
+        returns the corresponding value,
+
+    Examples
+    --------
+
+      >>> func = piecewise({0.5: 1, 0.75: -1, 1: 0})
+      >>> func(0.2)
+      [0]
+      >>> func(0.58)
+      [1]
+
+      >>> func = piecewise({0.5: [1, 0], 0.75: [0, 1]})
+      >>> func(0.2)
+      [0,0]
+      >>> func(0.58)
+      [1,0]
+      >>> func(100)
+      [0,1]
     """
 
     tp = NdarrayParam('tp', shape=('*',), optional=True)
@@ -282,15 +337,18 @@ class Piecewise(Process):
                 % (self.tp.shape[0], self.yp.shape[0]),
                 attr='yp', obj=self)
 
-        try:
-            import scipy.interpolate
-            self.sp_interpolate = scipy.interpolate
-        except ImportError:
-            self.sp_interpolate = None
-            if self.interpolation != 'zero':
+        if self.interpolation != 'zero':
+            if len(self.yp[0].shape) > 0 and self.yp[0].shape[0] != 1:
                 raise ValidationError(
-                    "To interpolate, Scipy must be installed",
+                    "Interpolation is only supported for 1d data",
                     attr='interpolation', obj=self)
+            try:
+                import scipy.interpolate
+                self.sp_interpolate = scipy.interpolate
+            except ImportError:
+                    raise ValidationError(
+                        "To interpolate, Scipy must be installed",
+                        attr='interpolation', obj=self)
 
         super(Piecewise, self).__init__(
             default_size_in=0, default_size_out=self.yp[0].size, **kwargs)
@@ -304,8 +362,11 @@ class Piecewise(Process):
             yp = self.yp[i]
 
             def step_piecewise(t):
-                ti = (np.searchsorted(tp, t + 0.5*dt) - 1).clip(0, len(yp)-1)
-                return yp[ti].ravel()
+                ti = (np.searchsorted(tp, t + 0.5*dt) - 1).clip(-1, len(yp)-1)
+                if ti == -1:
+                    return 0.0
+                else:
+                    return yp[ti].ravel()
         else:
             assert self.sp_interpolate
             f = self.sp_interpolate.interp1d(
