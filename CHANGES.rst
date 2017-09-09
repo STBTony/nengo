@@ -30,6 +30,11 @@ Release History
 - Fixed an issue in which ``ShapeParam`` would always store ``None``.
   (`#1342 <https://github.com/nengo/nengo/pull/1342>`_)
 
+**Changed**
+
+- piecewise() function is now a process. Support for interpolation of
+points was also added
+
 2.5.0 (July 24, 2017)
 =====================
 

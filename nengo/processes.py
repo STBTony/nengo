@@ -326,7 +326,8 @@ class Piecewise(Process):
     interpolation = EnumParam('interpolation', values=(
         'zero', 'linear', 'nearest', 'slinear', 'quadratic', 'cubic'))
 
-    def __init__(self, tp, yp, interpolation='zero', **kwargs):
+    def __init__(self, data, interpolation='zero', **kwargs):
+        tp, yp = zip(*data.items())
         self.tp = tp
         self.yp = yp
         self.interpolation = interpolation

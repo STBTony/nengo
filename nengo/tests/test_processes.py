@@ -341,8 +341,7 @@ class TestPiecewise(object):
     dt = 0.001
 
     def run_sim(self, data, interpolation, Simulator):
-        tp, yp = zip(*data.items())
-        process = nengo.processes.Piecewise(tp, yp, interpolation)
+        process = nengo.processes.Piecewise(data, interpolation)
 
         with nengo.Network() as model:
             u = nengo.Node(process, size_out=process.default_size_out)
@@ -377,8 +376,7 @@ class TestPiecewise(object):
 
 
     def get_step(self, data):
-        tp, yp = zip(*data.items())
-        process = nengo.processes.Piecewise(tp, yp)
+        process = nengo.processes.Piecewise(data)
         return process.make_step(shape_in=(process.default_size_in,),
                                  shape_out=(process.default_size_out,),
                                  dt=0.001, rng=None)
@@ -392,32 +390,28 @@ class TestPiecewise(object):
 
     def test_invalid_key(self):
         data = {0.5: 1, 1: 0, 'a': 0.2}
-        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(tp, yp)
+            process = nengo.processes.Piecewise(data)
             assert process
 
 
     def test_invalid_length(self):
         data = {0.5: [1, 0], 1.0: [1, 0, 0]}
-        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(tp, yp)
+            process = nengo.processes.Piecewise(data)
             assert process
 
 
     def test_invalid_interpolation_type(self):
         data = {0.5: 1, 1.0: 0}
-        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(tp, yp, 'not-interpolation')
+            process = nengo.processes.Piecewise(data, 'not-interpolation')
             assert process
 
     def test_invalid_interpolation_dimention(self):
         data = {0.5: [1, 0], 1.0: [0, 1]}
-        tp, yp = zip(*data.items())
         with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(tp, yp, 'cubic')
+            process = nengo.processes.Piecewise(data, 'cubic')
             assert process
 
     def test_interpolation(self, Simulator):
