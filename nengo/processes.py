@@ -4,7 +4,7 @@ import nengo.utils.numpy as npext
 from nengo.base import Process
 from nengo.dists import DistributionParam, Gaussian
 from nengo.exceptions import ValidationError
-from nengo.params import BoolParam, DictParam, EnumParam, NdarrayParam, NumberParam
+from nengo.params import BoolParam, DictParam, EnumParam, NdarrayParam, NumberParam, PiecewiseDataParam
 from nengo.synapses import LinearFilter, Lowpass, SynapseParam
 
 
@@ -321,57 +321,65 @@ class Piecewise(Process):
       [0,1]
     """
 
-    tp = NdarrayParam('tp', shape=('*',), optional=True)
-    yp = NdarrayParam('yp', shape=('...',), optional=True)
+    data = PiecewiseData('data')
     interpolation = EnumParam('interpolation', values=(
         'zero', 'linear', 'nearest', 'slinear', 'quadratic', 'cubic'))
 
     def __init__(self, data, interpolation='zero', **kwargs):
-        tp, yp = zip(*data.items())
-        self.tp = tp
-        self.yp = yp
+        self.data = data
         self.interpolation = interpolation
 
-        if self.tp.shape[0] != self.yp.shape[0]:
-            raise ValidationError(
-                "`tp.shape[0]` (%d) must equal `yp.shape[0]` (%d)"
-                % (self.tp.shape[0], self.yp.shape[0]),
-                attr='yp', obj=self)
-
         if self.interpolation != 'zero':
-            if len(self.yp[0].shape) > 0 and self.yp[0].shape[0] != 1:
-                raise ValidationError(
-                    "Interpolation is only supported for 1d data",
-                    attr='interpolation', obj=self)
             try:
                 import scipy.interpolate
                 self.sp_interpolate = scipy.interpolate
             except ImportError:
-                    raise ValidationError(
-                        "To interpolate, Scipy must be installed",
-                        attr='interpolation', obj=self)
+                raise ValidationError(
+                    "To interpolate, Scipy must be installed",
+                    attr='interpolation', obj=self)
+
+            if self._output_length() != 1:
+                raise ValidationError(
+                    "Interpolation is only supported for 1d output",
+                    attr='interpolation', obj=self)
+
+            if not self._interpolatable():
+                raise ValidationError(
+                    "Cannot interpolate on nonconstant sub-domains",
+                    attr='interpolation', obj=self)
 
         super(Piecewise, self).__init__(
-            default_size_in=0, default_size_out=self.yp[0].size, **kwargs)
+            default_size_in=0, default_size_out=self._output_length(), **kwargs)
+
+
+    def _interpolatable(self):
+        for time, value in self.data.iteritems():
+            if callable(value):
+                return False
+        return True
+
+    def _output_length(self):
+        value = next(self.data.itervalues())
+        value = value(0.1) if callable(value) else value
+        return np.asarray(value).size
 
     def make_step(self, shape_in, shape_out, dt, rng):
         assert shape_in == (0,)
+        tp, yp = zip(*sorted(self.data.iteritems()))
 
         if self.interpolation == 'zero':
-            i = np.argsort(self.tp)
-            tp = self.tp[i]
-            yp = self.yp[i]
-
             def step_piecewise(t):
                 ti = (np.searchsorted(tp, t + 0.5*dt) - 1).clip(-1, len(yp)-1)
                 if ti == -1:
-                    return 0.0
+                    value = [0.0]*self._output_length()
                 else:
-                    return yp[ti].ravel()
+                    value = yp[ti](t) if callable(yp[ti]) else yp[ti]
+
+                return np.array(value)
         else:
             assert self.sp_interpolate
             f = self.sp_interpolate.interp1d(
-                self.tp, self.yp, axis=0, kind=self.interpolation,
+                tp, yp, axis=0, kind=self.interpolation,
                 bounds_error=False, fill_value=0.)
 
             def step_piecewise(t):

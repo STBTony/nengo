@@ -387,6 +387,10 @@ class TestPiecewise(object):
         assert np.allclose(f(-10), [0])
         assert np.allclose(f(0), [0])
 
+        f = self.get_step({0.5: [1, 0], 1.0: [0, 1]})
+        assert np.allclose(f(-10), [0, 0])
+        assert np.allclose(f(0), [0, 0 ])
+
 
     def test_invalid_key(self):
         data = {0.5: 1, 1: 0, 'a': 0.2}
@@ -402,17 +406,90 @@ class TestPiecewise(object):
             assert process
 
 
+    def test_invalid_function_length(self):
+        data = {0.5: 0, 1.0: lambda t: [t, t ** 2]}
+        tp, yp = zip(*data.items())
+        with pytest.raises(ValidationError):
+            process = nengo.processes.Piecewise(tp, yp)
+            assert process
+
+
+    def test_function(self, Simulator):
+        f = self.run_sim({0: np.sin, 0.5: np.cos}, 'zero', Simulator)
+
+        assert np.allclose(f[0], [np.sin(0.001)])   # t = 0.001
+        assert np.allclose(f[249], [np.sin(0.25)])   # t = 0.25
+        assert np.allclose(f[498], [np.sin(0.499)])  # t = 0.499
+        assert np.allclose(f[499], [np.cos(0.5)])    # t = 0.5
+        assert np.allclose(f[749], [np.cos(0.75)])  # t = 0.75
+        assert np.allclose(f[999], [np.cos(1.0)])   # t = 1.0
+        assert np.allclose(f[1499], [np.cos(1.5)])  # t = 1.5
+
+
+    def test_function_list(self, Simulator):
+        def func1(t):
+            return t, t**2, t**3
+
+        def func2(t):
+            return t**4, t**5, t**6
+
+        f = self.run_sim({0: func1, 0.5: func2}, 'zero', Simulator)
+        assert np.allclose(f[0], func1(0.001))  # t = 0.001
+        assert np.allclose(f[249], func1(0.25)) # t = 0.25
+        assert np.allclose(f[498], func1(0.499)) # t = 0.25
+        assert np.allclose(f[499], func2(0.5))  # t = 0.5
+        assert np.allclose(f[749], func2(0.75)) # t = 0.75
+        assert np.allclose(f[999], func2(1.0))  # t = 1.0
+        assert np.allclose(f[1499], func2(1.5))  # t = 1.5
+
+
+    def test_mixture(self, Simulator):
+        f = self.run_sim({0: 1, 0.5: np.cos}, 'zero', Simulator)
+        assert np.allclose(f[0], [1])  # t = 0.001
+        assert np.allclose(f[249], [1]) # t = 0.25
+        assert np.allclose(f[498], [1]) # t = 0.25
+        assert np.allclose(f[499], [np.cos(0.5)])    # t = 0.5
+        assert np.allclose(f[749], [np.cos(0.75)])  # t = 0.75
+        assert np.allclose(f[999], [np.cos(1.0)])   # t = 1.0
+        assert np.allclose(f[1499], [np.cos(1.5)])  # t = 1.5
+
+
+    def test_mixture_3d(self, Simulator):
+        def func(t):
+            return t, t**2, t**3
+
+        f = self.run_sim({0: [1,1,1], 0.5: func}, 'zero', Simulator)
+        assert np.allclose(f[0], [1,1,1])  # t = 0.001
+        assert np.allclose(f[249], [1,1,1]) # t = 0.25
+        assert np.allclose(f[498], [1,1,1]) # t = 0.25
+        assert np.allclose(f[499], func(0.5))  # t = 0.5
+        assert np.allclose(f[749], func(0.75)) # t = 0.75
+        assert np.allclose(f[999], func(1.0))  # t = 1.0
+        assert np.allclose(f[1499], func(1.5))  # t = 1.5
+
+
     def test_invalid_interpolation_type(self):
         data = {0.5: 1, 1.0: 0}
         with pytest.raises(ValidationError):
             process = nengo.processes.Piecewise(data, 'not-interpolation')
             assert process
 
+
     def test_invalid_interpolation_dimention(self):
         data = {0.5: [1, 0], 1.0: [0, 1]}
         with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(data, 'cubic')
+            process = nengo.processes.Piecewise(data, 'linear')
             assert process
+
+
+    def test_invalid_interpolation_on_func(self):
+        def func(t):
+            return t
+        data = {0: 0, 0.5: func}
+        with pytest.raises(ValidationError):
+            process = nengo.processes.Piecewise(data, 'linear')
+            assert process
+
 
     def test_interpolation(self, Simulator):
         f = self.run_sim({0.5: 1, 1.0: 0}, 'linear', Simulator)

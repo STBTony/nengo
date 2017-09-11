@@ -350,6 +350,35 @@ class DictParam(Parameter):
         return super(DictParam, self).coerce(instance, value)
 
 
+class PiecewiseDataParam(DictParam):
+    """
+    A dictionary parameter where the keys are points in time (float) and values are
+    numerical constants or callables of the same dimension
+    """
+
+    def coerce(self, instance, data):
+        data = super(PiecewiseData, self).coerce(instance, data)
+
+        self.interpolatable = True
+        output_length = None
+        for time, value in data.iteritems():
+            if not is_number(time):
+                raise ValidationError("Keys must be times (floats or ints), not %r"
+                                      % type(time).__name__, attr='data')
+
+            # figure out the length of this item
+            if callable(value):
+                value = value(0.1)
+            length = np.asarray(value).size
+
+            # make sure this is the same length as previous items
+            if length != output_length and output_length is not None:
+                raise ValidationError("time %g has %d items instead of %d" %
+                                      (time, length, output_length), attr='data')
+            output_length = length
+
+        return data
+
 class NdarrayParam(Parameter):
     """A parameter where the value is a NumPy ndarray.
 
