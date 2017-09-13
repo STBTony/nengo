@@ -34,6 +34,10 @@ Release History
   (`#1340 <https://github.com/nengo/nengo/pull/1340>`_)
 - Fixed an issue in which ``ShapeParam`` would always store ``None``.
   (`#1342 <https://github.com/nengo/nengo/pull/1342>`_)
+- Passing a number less than ``Simulator.dt`` to the ``run`` method
+  will now raise an informative error.
+  (`#1354 <https://github.com/nengo/nengo/issues/1354>`_,
+  `#1357 <https://github.com/nengo/nengo/pull/1357>`_)
 
 2.5.0 (July 24, 2017)
 =====================

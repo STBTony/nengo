@@ -11,7 +11,7 @@ from nengo.builder import Model
 from nengo.builder.optimizer import optimize as opmerge_optimize
 from nengo.builder.signal import SignalDict
 from nengo.cache import get_default_decoder_cache
-from nengo.exceptions import ReadonlyError, SimulatorClosed
+from nengo.exceptions import ReadonlyError, SimulatorClosed, ValidationError
 from nengo.utils.compat import range, ResourceWarning
 from nengo.utils.graphs import toposort
 from nengo.utils.progress import ProgressTracker
@@ -275,7 +275,7 @@ class Simulator(object):
         Parameters
         ----------
         time_in_seconds : float
-            Amount of time to run the simulation for.
+            Amount of time to run the simulation for. Must be at least ``dt``.
         progress_bar : bool or `.ProgressBar` or `.ProgressUpdater`, optional \
                        (Default: True)
             Progress bar for displaying the progress of the simulation run.
@@ -285,6 +285,10 @@ class Simulator(object):
             For more control over the progress bar, pass in a `.ProgressBar`
             or `.ProgressUpdater` instance.
         """
+        if time_in_seconds < self.dt:
+            raise ValidationError("Cannot run for less than %g seconds"
+                                  % (self.dt,), attr="time_in_seconds")
+
         steps = int(np.round(float(time_in_seconds) / self.dt))
         logger.info("Running %s for %f seconds, or %d steps",
                     self.model.label, time_in_seconds, steps)
