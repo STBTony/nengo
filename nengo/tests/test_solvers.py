@@ -539,3 +539,8 @@ def test_nosolver_validation():
         NoSolver(values=np.zeros(1))
     with pytest.raises(ValidationError):
         NoSolver(values=np.zeros((1, 1, 1)))
+    # Non-numbers are not okay
+    with pytest.raises(ValidationError):
+        NoSolver(values="test")
+    # array_likes are okay
+    NoSolver(values=[[1], [1]])
