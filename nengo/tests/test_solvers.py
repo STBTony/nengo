@@ -8,6 +8,7 @@ import pytest
 
 import nengo
 from nengo.dists import UniformHypersphere
+from nengo.exceptions import ValidationError
 from nengo.utils.compat import iteritems, range
 from nengo.utils.numpy import rms, norm
 from nengo.utils.stdlib import Timer
@@ -501,35 +502,40 @@ def test_eval_points(Simulator, nl_nodirect, plt, seed, rng, logger):
 
 
 @pytest.mark.parametrize('values, weights', [
-    (None, False), (None, True), (1, False), (1, True)
-])
-def test_nosolver(values, weights, rng, seed, Simulator):
-    n_post = 20
-    n = 10
-    d = 2
-
-    if values is not None:
-        if weights is False:
-            values = np.ones((n, d))
-        else:
-            values = np.ones((n, n_post))
-
+    (None, False), (None, True), ("ones", False), ("ones", True)])
+def test_nosolver(values, weights, seed, Simulator):
     with nengo.Network(seed=seed) as net:
-        pre = nengo.Ensemble(n, d)
-        post = nengo.Ensemble(n_post, d)
-        conn = nengo.Connection(pre, post, solver=NoSolver(values=values,
-                                                           weights=weights))
+        pre = nengo.Ensemble(10, 2)
+        post = nengo.Ensemble(20, 2)
 
-    sim = Simulator(net)
-    built_weights = sim.data[conn].weights
-    sim.close()
+        if values is not None and weights:
+            values = np.ones((pre.n_neurons, post.n_neurons))
+        elif values is not None:
+            values = np.ones((pre.n_neurons, post.dimensions))
+
+        conn = nengo.Connection(
+            pre, post, solver=NoSolver(values=values, weights=weights))
+
+    with Simulator(net) as sim:
+        built_weights = sim.data[conn].weights
 
     if values is None:
-        assert np.all(built_weights) == 0
+        assert conn.solver.values is None
+        assert np.all(built_weights == 0)
     else:
-        assert np.all(built_weights) == 1
+        assert np.all(conn.solver.values == values)
+        assert np.all(built_weights == 1)
 
-    if weights is False:
-        assert built_weights.T.shape == (n, d)
+    if weights:
+        assert built_weights.T.shape == (pre.n_neurons, post.n_neurons)
     else:
-        assert built_weights.T.shape == (n, n_post)
+        assert built_weights.T.shape == (pre.n_neurons, post.dimensions)
+    assert sim.data[conn].eval_points is None
+
+
+def test_nosolver_validation():
+    # Must be a 2-dimensional array
+    with pytest.raises(ValidationError):
+        NoSolver(values=np.zeros(1))
+    with pytest.raises(ValidationError):
+        NoSolver(values=np.zeros((1, 1, 1)))

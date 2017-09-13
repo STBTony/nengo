@@ -12,7 +12,7 @@ from nengo.ensemble import Ensemble, Neurons
 from nengo.exceptions import BuildError, ObsoleteError
 from nengo.neurons import Direct
 from nengo.node import Node
-from nengo.solvers import Solver, NoSolver
+from nengo.solvers import NoSolver, Solver
 from nengo.utils.compat import is_iterable, itervalues
 
 built_attrs = ['eval_points', 'solver_info', 'weights', 'transform']
@@ -99,10 +99,13 @@ def build_linear_system(model, conn, rng):
     return eval_points, activities, targets
 
 
-def build_decoders(model, conn, rng, transform, eval_points, targets):
+def build_decoders(model, conn, rng, transform):
     encoders = model.params[conn.pre_obj].encoders
     gain = model.params[conn.pre_obj].gain
     bias = model.params[conn.pre_obj].bias
+
+    eval_points = get_eval_points(model, conn, rng)
+    targets = get_targets(conn, eval_points)
 
     x = np.dot(eval_points, encoders.T / conn.pre_obj.radius)
     E = None
@@ -158,16 +161,19 @@ def slice_signal(model, signal, sl):
 
 @Builder.register(Solver)
 def build_solver(model, solver, conn, rng, transform):
-    eval_points = get_eval_points(model, conn, rng)
-    targets = get_targets(conn, eval_points)
-    return build_decoders(model, conn, rng, transform, eval_points, targets)
+    return build_decoders(model, conn, rng, transform)
 
 
 @Builder.register(NoSolver)
 def build_no_solver(model, solver, conn, rng, transform):
-    eval_points = np.zeros((1, conn.size_in))
+    activities = np.zeros((1, conn.pre_obj.n_neurons))
     targets = np.zeros((1, conn.size_mid))
-    return build_decoders(model, conn, rng, transform, eval_points, targets)
+    E = np.zeros((1, conn.post_obj.n_neurons)) if solver.weights else None
+    # No need to invoke the cache for NoSolver
+    decoders, solver_info = conn.solver(activities, targets, rng=rng, E=E)
+    weights = (decoders.T if conn.solver.weights else
+               multiply(transform, decoders.T))
+    return None, weights, solver_info
 
 
 @Builder.register(Connection)  # noqa: C901
