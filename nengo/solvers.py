@@ -51,7 +51,7 @@ class Solver(with_metaclass(DocstringInheritor, FrozenObject)):
 
         Returns
         -------
-        X :  (n_neurons, dimensions) or (n_neurons, post.n_neurons) ndarray
+        X : (n_neurons, dimensions) or (n_neurons, post.n_neurons) ndarray
             (n_neurons, dimensions) array of decoders (if ``solver.weights``
             is False) or (n_neurons, post.n_neurons) array of weights
             (if ``'solver.weights`` is True).
