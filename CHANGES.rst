@@ -33,7 +33,8 @@ Release History
 **Changed**
 
 - piecewise() function is now a process. Support for interpolation of
-points was also added
+  points was also added
+  (`#1100 <https://github.com/nengo/nengo/pull/1100>`_)
 
 2.5.0 (July 24, 2017)
 =====================

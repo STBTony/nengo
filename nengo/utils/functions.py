@@ -11,8 +11,8 @@ from nengo.utils.compat import is_number, iteritems
 
 
 def piecewise(data):
-    warnings.warn("piecewise() function is deprecated. Use Piecewise process instead.",
-                      DeprecationWarning)
+    warnings.warn("piecewise() function is deprecated. Use Piecewise process\
+                    instead.", DeprecationWarning)
 
     """Create a piecewise constant function from a dictionary.
 

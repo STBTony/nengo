@@ -338,8 +338,6 @@ def test_present_input(Simulator, rng):
 
 class TestPiecewise(object):
 
-    dt = 0.001
-
     def run_sim(self, data, interpolation, Simulator):
         process = nengo.processes.Piecewise(data, interpolation)
 
@@ -347,7 +345,7 @@ class TestPiecewise(object):
             u = nengo.Node(process, size_out=process.default_size_out)
             up = nengo.Probe(u)
 
-        with Simulator(model, dt=self.dt) as sim:
+        with Simulator(model) as sim:
             sim.run(1.5)
 
         return sim.data[up]
@@ -372,7 +370,6 @@ class TestPiecewise(object):
         assert np.allclose(f[749], [1, 0]) # t = 0.75
         assert np.allclose(f[999], [0, 1]) # t = 1.0
         assert np.allclose(f[1499], [0, 1]) # t = 1.5
-
 
 
     def get_step(self, data):
@@ -408,16 +405,20 @@ class TestPiecewise(object):
             process = nengo.processes.Piecewise(data, 'not-interpolation')
             assert process
 
-    def test_invalid_interpolation_dimention(self):
-        data = {0.5: [1, 0], 1.0: [0, 1]}
-        with pytest.raises(ValidationError):
-            process = nengo.processes.Piecewise(data, 'cubic')
-            assert process
 
     def test_interpolation(self, Simulator):
+        pytest.importorskip('scipy')
+
+
+
+
         f = self.run_sim({0.5: 1, 1.0: 0}, 'linear', Simulator)
         assert np.allclose(f[499], [1]) # t = 0.5
         assert np.allclose(f[999], [0]) # t = 1.0
+
+        f = self.run_sim({0.5: [1,0], 1.0: [0,1]}, 'linear', Simulator)
+        assert np.allclose(f[499], [1,0]) # t = 0.5
+        assert np.allclose(f[999], [0,1]) # t = 1.0
 
         f = self.run_sim({0.5: 1, 1.0: 0}, 'nearest', Simulator)
         assert np.allclose(f[499], [1]) # t = 0.5
