@@ -5,7 +5,8 @@ import nengo.utils.numpy as npext
 from nengo.base import Process
 from nengo.dists import DistributionParam, Gaussian
 from nengo.exceptions import ValidationError
-from nengo.params import BoolParam, DictParam, EnumParam, NdarrayParam, NumberParam
+from nengo.params import (
+    BoolParam, DictParam, EnumParam, NdarrayParam, NumberParam)
 from nengo.synapses import LinearFilter, Lowpass, SynapseParam
 
 
@@ -264,61 +265,80 @@ class PresentInput(Process):
 
 
 class Piecewise(Process):
-    """Present a piecewise input with different options for interpolation.
+    """A piecewise function with different options for interpolation.
 
-    Given an input of  ``{0: 1, 0.5: 1, 0.75: -1, 1: 0}`` this
-    will generate a function that returns the values in yp at corresponding
-    time points.
+    Given an input dictionary of ``{0: 0, 0.5: -1, 0.75: 0.5, 1: 0}``,
+    this process  will emit the numerical values (0, -1, 0.5, 0)
+    starting at the corresponding time points (0, 0.5, 0.75, 1).
 
-    Elements in tp must be times (floats or ints). The values in yp can be floats for
-    1d or lists for multi-dimensional function. All lists must be of the same length.
+    The keys in the input dictionary must be times (float or int).
+    The values in the dictionary can be floats, lists of floats,
+    or numpy arrays. All lists or numpy arrays must be of the same length,
+    as the output shape of the process will be determined by the shape
+    of the values.
 
-    Interpolation on the data points using scipy.interpolation is also
-    supported. The default interpolation is 'zero', which simply creates
-    a piecewise function whose values begin at the specified time points.
+    Interpolation on the data points using `scipy.interpolate` is also
+    supported. The default interpolation is 'zero', which creates a
+    piecewise function whose values begin at the specified time points.
     So the above example would be shortcut for::
 
         def function(t):
             if t < 0.5:
                 return 0
             elif t < 0.75
-                return 1
-            elif t < 1:
                 return -1
+            elif t < 1:
+                return 0.5
             else:
                 return 0
 
-    For times before the first specified time, it will default to zero (of
-    the correct length). This means that the above can be simplified to::
+    For times before the first specified time, an array of zeros (of
+    the correct length) will be emitted.
+    This means that the above can be simplified to::
 
-        Piecewise({0.5: 1, 0.75: -1, 1: 0})
+        Piecewise({0.5: -1, 0.75: 0.5, 1: 0})
 
     Parameters
     ----------
-    tp : time points of the function where values are specified
-    yp : values of the function at each time points, can be floats of lists
-    interpolation : optional parameter for interpolation. Can use 'linear',
-    'nearest', 'slinear', 'quadratic', 'cubic', 'zero'. The default is 'zero',
-    which just creates a plain piecewise function whose values begin at
-    corresponding time points
+    data : dict
+        A dictionary mapping times to the values that should be emitted
+        at those times. Times must be numbers (ints or floats), while values
+        can be numbers, lists of numbers, or numpy arrays of numbers.
+    interpolation : str, optional (Default: 'zero')
+        One of 'linear', 'nearest', 'slinear', 'quadratic', 'cubic', or 'zero'.
+        Specifies how to interpolate between times with specified value.
+        'zero' creates a plain piecewise function whose values begin at
+        corresponding time points, while all other options interpolate
+        as described in `scipy.interpolate`.
+
+    Attributes
+    ----------
+    interpolation : str
+        One of 'linear', 'nearest', 'slinear', 'quadratic', 'cubic', or 'zero'.
+        Specifies how to interpolate between times with specified value.
+        'zero' creates a plain piecewise function whose values begin at
+        corresponding time points, while all other options interpolate
+        as described in `scipy.interpolate`.
+    tp : ndarray
+        Specified time points.
+    yp : ndarray
+        Values corresponding to the time points, ``tp``.
 
     Examples
     --------
-    ::
 
-        process = Piecewise({0.5: 1, 0.75: -1, 1: 0})
-        with nengo.Network() as model:
-            u = nengo.Node(process, size_out=process.default_size_out)
-            up = nengo.Probe(u)
-        with Simulator(model) as sim:
-            sim.run(1.5)
-
-        f = sim.data[up]
-
-    >>> f[199]   # t = 0.2
-    [0]
-    >>> f[579]   # t = 0.58
-    [1]
+    >>> from nengo.processes import Piecewise
+    >>> process = Piecewise({0.5: 1, 0.75: -1, 1: 0})
+    >>> with nengo.Network() as model:
+    ...     u = nengo.Node(process, size_out=process.default_size_out)
+    ...     up = nengo.Probe(u)
+    >>> with nengo.Simulator(model) as sim:
+    ...     sim.run(1.5)
+    >>> f = sim.data[up]
+    >>> t = sim.trange()
+    >>> f[t == 0.2]
+    array([[ 0.]])
+    >>> f[t == 0.58]
     """
 
     tp = NdarrayParam('tp', shape=('*',), optional=True)
@@ -330,7 +350,6 @@ class Piecewise(Process):
         tp, yp = zip(*data.items())
         self.tp = tp
         self.yp = yp
-        self.interpolation = interpolation
 
         if self.tp.shape[0] != self.yp.shape[0]:
             raise ValidationError(
@@ -338,20 +357,24 @@ class Piecewise(Process):
                 % (self.tp.shape[0], self.yp.shape[0]),
                 attr='yp', obj=self)
 
-        if self.interpolation != 'zero':
+        if interpolation != 'zero':
             try:
                 import scipy.interpolate
                 self.sp_interpolate = scipy.interpolate
             except ImportError:
-                warnings.warn(UserWarning("%s interpolation was not applied\
-                    because scipy is no installed. Default 'zero' interpolation\
-                    was used instead"))
+                warnings.warn("%r interpolation cannot be applied because "
+                              "scipy is not installed. Using 'zero' "
+                              "interpolation instead." % (interpolation,))
+                self.sp_interpolate = None
+                interpolation = 'zero'
+        self.interpolation = interpolation
 
         super(Piecewise, self).__init__(
             default_size_in=0, default_size_out=self.yp[0].size, **kwargs)
 
     def make_step(self, shape_in, shape_out, dt, rng):
         assert shape_in == (0,)
+        assert shape_out == np.atleast_1d(self.yp[0]).shape
 
         if self.interpolation == 'zero':
             i = np.argsort(self.tp)
@@ -365,10 +388,17 @@ class Piecewise(Process):
                 else:
                     return yp[ti].ravel()
         else:
-            assert self.sp_interpolate
-            f = self.sp_interpolate.interp1d(
-                self.tp, self.yp, axis=0, kind=self.interpolation,
-                bounds_error=False, fill_value=0.)
+            assert self.sp_interpolate is not None
+
+            if self.interpolation == "cubic" and 0 not in self.tp:
+                warnings.warn("'cubic' interpolation may fail if data not "
+                              "specified for t=0.0")
+
+            f = self.sp_interpolate.interp1d(self.tp, self.yp,
+                                             axis=0,
+                                             kind=self.interpolation,
+                                             bounds_error=False,
+                                             fill_value=0.)
 
             def step_piecewise(t):
                 return f(t).ravel()

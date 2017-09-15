@@ -9,12 +9,11 @@ from nengo.exceptions import ValidationError
 from nengo.utils.compat import is_number, iteritems
 
 
-
 def piecewise(data):
-    warnings.warn("piecewise() function is deprecated. Use Piecewise process\
-                    instead.", DeprecationWarning)
-
     """Create a piecewise constant function from a dictionary.
+
+    .. deprecated:: 2.5.1
+       Use `nengo.processes.Piecewise` instead.
 
     Given an input of data={0: 0, 0.5: 1, 0.75: -1, 1: 0} this will generate a
     function that returns 0 up until t=0.5, then outputs a 1 until t=0.75,
@@ -77,6 +76,9 @@ def piecewise(data):
       [0.8775825618903728]
 
     """
+
+    warnings.warn("The `piecewise` function is deprecated. Use the Piecewise "
+                  "process instead.", DeprecationWarning)
 
     # first, sort the data (to simplify finding the right element
     # when calling the function)
