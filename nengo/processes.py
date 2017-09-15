@@ -357,7 +357,8 @@ class Piecewise(Process):
                 % (self.tp.shape[0], self.yp.shape[0]),
                 attr='yp', obj=self)
 
-        if interpolation != 'zero':
+        needs_scipy = ('linear', 'nearest', 'slinear', 'quadratic', 'cubic')
+        if interpolation in needs_scipy:
             try:
                 import scipy.interpolate
                 self.sp_interpolate = scipy.interpolate
