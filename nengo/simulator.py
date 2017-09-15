@@ -285,9 +285,15 @@ class Simulator(object):
             For more control over the progress bar, pass in a `.ProgressBar`
             or `.ProgressUpdater` instance.
         """
-        if time_in_seconds < self.dt:
-            raise ValidationError("Cannot run for less than %g seconds"
-                                  % (self.dt,), attr="time_in_seconds")
+        if time_in_seconds < 0:
+            raise ValidationError("Cannot run backwards",
+                                  attr="time_in_seconds")
+        elif time_in_seconds == 0:
+            warnings.warn("Can't run for 0 seconds")
+            return
+        elif time_in_seconds < self.dt:
+            warnings.warn("Can't run for less than %g seconds" % (self.dt,))
+            return
 
         steps = int(np.round(float(time_in_seconds) / self.dt))
         logger.info("Running %s for %f seconds, or %d steps",

@@ -280,8 +280,8 @@ def test_invalid_dt(Simulator):
     net = nengo.Network()
     with Simulator(net) as sim:
         with pytest.raises(ValidationError):
-            sim.run(0.0009)
-        with pytest.raises(ValidationError):
-            sim.run(0)
-        with pytest.raises(ValidationError):
             sim.run(-0.001)
+        with warns(UserWarning):
+            sim.run(0)
+        with warns(UserWarning):
+            sim.run(0.0009)
