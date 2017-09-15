@@ -361,7 +361,7 @@ class TestPiecewise(object):
         assert np.allclose(f[t == 0.05], [1.])
         assert np.allclose(f[t == 0.075], [1.])
         assert np.allclose(f[t == 0.1], [0.])
-        assert np.allclose(f[t == 0.1], [0.])
+        assert np.allclose(f[t == 0.15], [0.])
 
     def test_lists(self, Simulator):
         t, f = self.run_sim({0.05: [1, 0], 0.1: [0, 1]}, 'zero', Simulator)
@@ -389,6 +389,10 @@ class TestPiecewise(object):
 
     def test_invalid_length(self):
         data = {0.05: [1, 0], 0.1: [1, 0, 0]}
+        with pytest.raises(ValidationError):
+            Piecewise(data)
+
+        data = {0.05: [1], 0.1: 0}
         with pytest.raises(ValidationError):
             Piecewise(data)
 

@@ -279,7 +279,7 @@ class Piecewise(Process):
 
     Interpolation on the data points using `scipy.interpolate` is also
     supported. The default interpolation is 'zero', which creates a
-    piecewise function whose values begin at the specified time points.
+    piecewise function whose values change at the specified time points.
     So the above example would be shortcut for::
 
         def function(t):
@@ -316,7 +316,7 @@ class Piecewise(Process):
     interpolation : str
         One of 'linear', 'nearest', 'slinear', 'quadratic', 'cubic', or 'zero'.
         Specifies how to interpolate between times with specified value.
-        'zero' creates a plain piecewise function whose values begin at
+        'zero' creates a plain piecewise function whose values change at
         corresponding time points, while all other options interpolate
         as described in `scipy.interpolate`.
     tp : ndarray
@@ -339,23 +339,30 @@ class Piecewise(Process):
     >>> f[t == 0.2]
     array([[ 0.]])
     >>> f[t == 0.58]
+    array([[ 1.]])
     """
 
-    tp = NdarrayParam('tp', shape=('*',), optional=True)
-    yp = NdarrayParam('yp', shape=('...',), optional=True)
+    tp = NdarrayParam('tp', shape=('*',), optional=False)
+    yp = NdarrayParam('yp', shape=('...',), optional=False)
     interpolation = EnumParam('interpolation', values=(
         'zero', 'linear', 'nearest', 'slinear', 'quadratic', 'cubic'))
 
     def __init__(self, data, interpolation='zero', **kwargs):
         tp, yp = zip(*data.items())
+
+        def scalar_len(x):
+            try:
+                return len(x)
+            except TypeError:
+                # treat objects without len (floats/ints) as length 0
+                return 0
+
+        if any(scalar_len(y) != scalar_len(yp[0]) for y in yp):
+            raise ValidationError("All values must have same length",
+                                  attr="yp", obj=self)
+
         self.tp = tp
         self.yp = yp
-
-        if self.tp.shape[0] != self.yp.shape[0]:
-            raise ValidationError(
-                "`tp.shape[0]` (%d) must equal `yp.shape[0]` (%d)"
-                % (self.tp.shape[0], self.yp.shape[0]),
-                attr='yp', obj=self)
 
         needs_scipy = ('linear', 'nearest', 'slinear', 'quadratic', 'cubic')
         if interpolation in needs_scipy:
