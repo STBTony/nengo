@@ -342,7 +342,7 @@ def test_present_input(Simulator, rng):
 class TestPiecewise(object):
 
     def run_sim(self, data, interpolation, Simulator):
-        process = Piecewise(data, interpolation)
+        process = Piecewise(data, interpolation=interpolation)
 
         with nengo.Network() as model:
             u = nengo.Node(process, size_out=process.default_size_out)
@@ -395,14 +395,14 @@ class TestPiecewise(object):
     def test_invalid_interpolation_type(self):
         data = {0.05: 1, 0.1: 0}
         with pytest.raises(ValidationError):
-            Piecewise(data, 'not-interpolation')
+            Piecewise(data, interpolation='not-interpolation')
 
     def test_fallback_to_zero(self, Simulator, monkeypatch):
         # Emulate not having scipy in case we have scipy
         monkeypatch.setitem(sys.modules, "scipy.interpolate", None)
 
         with warns(UserWarning):
-            process = Piecewise({0.05: 1, 0.1: 0}, 'linear')
+            process = Piecewise({0.05: 1, 0.1: 0}, interpolation='linear')
         assert process.interpolation == 'zero'
 
     def test_interpolation_1d(self, plt, Simulator):
