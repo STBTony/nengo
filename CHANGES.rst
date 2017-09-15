@@ -22,6 +22,13 @@ Release History
 2.5.1 (unreleased)
 ==================
 
+**Added**
+
+- Added a new ``Piecewise`` process, which replaces the now deprecated
+  ``piecewise`` function.
+  (`#1036 <https://github.com/nengo/nengo/issues/1036>`_,
+  `#1100 <https://github.com/nengo/nengo/pull/1100>`_)
+
 **Fixed**
 
 - The progress bar that can appear when building a large model
@@ -30,10 +37,10 @@ Release History
 - Fixed an issue in which ``ShapeParam`` would always store ``None``.
   (`#1342 <https://github.com/nengo/nengo/pull/1342>`_)
 
-**Changed**
+**Deprecated**
 
-- piecewise() function is now a process. Support for interpolation of
-  points was also added
+- The ``piecewise`` function in ``nengo.utils.functions`` has been deprecated.
+  Please use the new ``Piecewise`` process instead.
   (`#1100 <https://github.com/nengo/nengo/pull/1100>`_)
 
 2.5.0 (July 24, 2017)
